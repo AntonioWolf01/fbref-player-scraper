@@ -12,73 +12,97 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
 
-# --- CUSTOM CSS & DESIGN ---
+# --- CUSTOM CSS & DESIGN FIXES ---
 st.markdown("""
     <style>
-    /* Import Fonts: Playfair Display (Modern Italic) and DM Sans */
+    /* Import Fonts */
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;400;500;700&family=Playfair+Display:ital,wght@1,600&display=swap');
 
-    /* Global Theme */
+    /* 1. GLOBAL RESET - Force Text Color to Gainsboro everywhere */
+    html, body, [class*="css"], .stMarkdown, .stText, p {
+        font-family: 'DM Sans', sans-serif !important;
+        color: gainsboro !important;
+    }
+
+    /* 2. BACKGROUND - Darker overlay to ensure text readability */
     .stApp {
-        /* Background Image with Overlay for Opacity */
-        background-image: linear-gradient(rgba(30, 30, 30, 0.85), rgba(30, 30, 30, 0.9)), url("https://i.postimg.cc/TP5LtjtN/Gemini-Generated-Image-k7c480k7c480k7c4.png");
+        background-image: linear-gradient(rgba(20, 20, 20, 0.85), rgba(20, 20, 20, 0.95)), url("https://i.postimg.cc/TP5LtjtN/Gemini-Generated-Image-k7c480k7c480k7c4.png");
         background-size: cover;
         background-position: center;
         background-attachment: fixed;
     }
 
-    /* Typography */
-    html, body, [class*="css"] {
-        font-family: 'DM Sans', sans-serif !important;
-        color: gainsboro !important;
-    }
-
-    /* Main Title Styling */
+    /* 3. TITLE STYLING - High Contrast White */
     .main-title {
         font-family: 'Playfair Display', serif !important;
         font-style: italic;
         font-weight: 600;
         font-size: 5rem !important;
         text-align: center;
-        color: #ffffff;
+        color: #ffffff !important; /* Force White */
         margin-bottom: 0px;
-        text-shadow: 2px 2px 4px #000000;
+        text-shadow: 4px 4px 8px rgba(0,0,0,0.9); /* Drop shadow for pop */
     }
 
     .subtitle {
         text-align: center;
         font-size: 1.2rem;
-        color: #cccccc;
+        color: #dddddd !important;
         margin-bottom: 40px;
+        font-weight: 400;
     }
 
-    /* Input Elements Styling */
-    .stCheckbox label, .stToggle label {
-        color: gainsboro !important;
+    /* 4. EXPANDER HEADERS - Fix the "White Bar" issue */
+    .streamlit-expanderHeader {
+        background-color: #2b2b2b !important; /* Dark Grey Background */
+        color: white !important;
+        border: 1px solid #444;
+        border-radius: 8px;
     }
     
-    /* Button Styling */
+    /* Fix the arrow icon color in expanders */
+    .streamlit-expanderHeader svg {
+        fill: white !important; 
+        color: white !important;
+    }
+
+    /* 5. EXPANDER CONTENT & WIDGET LABELS - Fix "Invisible Text" */
+    div[data-testid="stExpander"] {
+        background-color: rgba(30, 30, 30, 0.5); /* Semi-transparent backing */
+        border-radius: 0 0 8px 8px;
+        border: 1px solid #444;
+        border-top: none;
+        padding: 10px;
+    }
+
+    /* Force Toggle and Checkbox Labels to be visible */
+    label[data-testid="stWidgetLabel"] p, 
+    div[data-testid="stMarkdownContainer"] p {
+        color: #e0e0e0 !important; /* Bright light grey */
+        font-size: 16px !important;
+    }
+
+    /* 6. BUTTON STYLING */
     div.stButton > button {
         width: 100%;
         background-color: gainsboro;
-        color: #1e1e1e;
+        color: #1e1e1e !important; /* Dark text on light button */
         font-weight: bold;
         border: none;
         padding: 15px;
         font-size: 18px;
+        border-radius: 8px;
         transition: 0.3s;
+        margin-top: 20px;
     }
     div.stButton > button:hover {
         background-color: #ffffff;
-        color: #000000;
-        border: 1px solid #ffffff;
+        box-shadow: 0px 0px 15px rgba(255,255,255,0.3);
     }
-
-    /* Expander Styling */
-    .streamlit-expanderHeader {
-        background-color: #2b2b2b;
-        color: gainsboro;
-    }
+    
+    /* Hide the Streamlit main menu and footer for a cleaner look */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -99,31 +123,37 @@ STATS_OPT = [
 def render_selection_section(title, options, key_prefix):
     """Renders an expander with Select All and Toggles."""
     selected_items = []
+    # Using st.expander directly. The CSS above handles the styling.
     with st.expander(title, expanded=True):
         # Select All Checkbox
         select_all = st.checkbox(f"Select All {title}", key=f"all_{key_prefix}")
         
-        if select_all:
-            return options  # Return all options if selected
+        st.markdown("---") # Visual separator
         
-        st.markdown("---")
+        # Determine specific selection state
+        current_selection = options if select_all else []
+        
         # Grid layout for toggles
         cols = st.columns(3)
         for i, option in enumerate(options):
             col = cols[i % 3]
             with col:
-                if st.toggle(option, key=f"{key_prefix}_{option}"):
+                # If select_all is True, the toggle defaults to True. 
+                # Note: Real-time sync between "Select All" and individual toggles is tricky in Streamlit 
+                # without Session State callbacks, but this is the cleanest visual implementation.
+                is_checked = st.toggle(option, value=select_all, key=f"{key_prefix}_{option}")
+                if is_checked:
                     selected_items.append(option)
+                    
     return selected_items
 
 # --- CONFIGURATION (CENTERED) ---
-c1, c2, c3 = st.columns([1, 8, 1]) # Centering container
+c1, c2, c3 = st.columns([1, 6, 1]) # Adjusted width for better centering
 with c2:
     selected_leagues = render_selection_section("Leagues", LEAGUES_OPT, "lg")
     selected_seasons = render_selection_section("Seasons", SEASONS_OPT, "sn")
     selected_stats = render_selection_section("Statistics", STATS_OPT, "st")
     
-    st.markdown("###")
     start_btn = st.button("START SCRAPING")
 
 # --- SCRAPING ENGINE ---
@@ -163,8 +193,8 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-    # LINUX/CLOUD SPECIFIC PATHS
+    
+    # Try to locate chromium/driver automatically or use system defaults
     options.binary_location = "/usr/bin/chromium"
     
     driver = None
@@ -173,12 +203,15 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
         driver = webdriver.Chrome(service=service, options=options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     except Exception as e:
-        st.error(f"Driver Error: {e}")
-        return pd.DataFrame()
+        # Fallback for local testing if linux paths fail
+        try:
+             driver = webdriver.Chrome(options=options)
+        except:
+             st.error(f"Driver Error: {e}")
+             return pd.DataFrame()
 
     merged_data_storage = {}
     
-    # Calculate total operations for realistic progress
     total_steps = len(leagues) * len(seasons) * len(stat_types)
     current_step = 0
 
@@ -199,7 +232,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     
                     if s_type not in type_map: continue
                     
-                    status_text.markdown(f"**Processing:** {league} | Season {season} | Table: *{s_type}*")
+                    status_text.markdown(f"<span style='color:gainsboro'>**Processing:** {league} | Season {season} | Table: *{s_type}*</span>", unsafe_allow_html=True)
                     
                     url_slug = type_map[s_type]['url']
                     table_id_key = type_map[s_type]['table_id']
@@ -213,7 +246,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     
                     try:
                         driver.get(url)
-                        time.sleep(random.uniform(2, 4)) # Slightly faster, but safe
+                        time.sleep(random.uniform(2, 4))
                         
                         wait = WebDriverWait(driver, 10)
                         table_selector = f"table[id*='{table_id_key}']"
@@ -290,7 +323,7 @@ if start_btn:
             st.success("Scraping Completed Successfully!")
             st.markdown(f"**Total Rows Retrieved:** {len(df_result)}")
             
-            st.dataframe(df_result.head(10)) # Showing 10 rows
+            st.dataframe(df_result.head(10)) 
             
             csv = df_result.to_csv(index=False).encode('utf-8')
             st.download_button(
