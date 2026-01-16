@@ -1,121 +1,313 @@
 import streamlit as st
 import pandas as pd
+import time
+import random
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-# 1. Page Configuration
-st.set_page_config(page_title="Scrape That!", layout="centered")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Scrape That!", layout="wide")
 
-# 2. Custom CSS for Black & White Theme and Centering
+# --- CUSTOM CSS FOR BLACK & WHITE THEME & CENTERING ---
 st.markdown("""
     <style>
-    /* Force Black and White / Grayscale */
-    :root {
-        --primary-color: #000000;
-        --background-color: #ffffff;
-        --secondary-background-color: #f0f0f0;
-        --text-color: #000000;
-        --font: sans-serif;
+    /* Force Black and White Theme Elements */
+    .stApp {
+        background-color: #ffffff;
+        color: #000000;
     }
     
-    /* Grayscale filter for toggles and buttons to remove default Streamlit colors */
-    .stToggle, .stCheckbox, .stButton > button {
-        filter: grayscale(100%);
+    /* Primary Buttons (Black background, White text) */
+    div.stButton > button:first-child {
+        background-color: #000000;
+        color: #ffffff;
+        border: 2px solid #000000;
+        border-radius: 5px;
+        transition: all 0.3s;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #ffffff;
+        color: #000000;
+        border: 2px solid #000000;
     }
 
-    /* Centering the Header */
+    /* Headings Alignment */
+    h1, h2, h3, h4, p {
+        text-align: center;
+        color: #000000 !important;
+    }
+    
+    /* Custom Header Container */
     .header-container {
         display: flex;
-        flex-direction: row;
-        align-items: center;
         justify-content: center;
+        align-items: center;
+        gap: 20px;
         margin-bottom: 10px;
     }
-    
-    .title-text {
-        font-size: 3rem;
-        font-weight: bold;
-        margin-left: 15px;
-        color: black;
+    .header-logo {
+        height: 60px;
+        width: 60px;
+        border-radius: 10px;
+    }
+    .header-title {
+        font-size: 3.5rem;
+        font-weight: 700;
+        margin: 0;
         line-height: 1;
+        color: #000000;
     }
-
-    .subtitle-text {
+    .subtitle {
         text-align: center;
-        font-size: 1.2rem;
-        font-weight: normal;
-        color: #333;
+        font-size: 1.1rem;
+        font-weight: 400;
+        color: #333333;
         margin-top: -10px;
-        margin-bottom: 30px;
+        margin-bottom: 40px;
     }
-
-    /* Center the configuration area */
-    div[data-testid="stVerticalBlock"] > div {
+    
+    /* Center Streamlit Elements */
+    div[data-testid="stVerticalBlock"] {
         align-items: center;
     }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 3. Header Section (Logo + Title)
-# Using columns to center align the image and text effectively
-col_spacer_l, col_content, col_spacer_r = st.columns([1, 4, 1])
-
-with col_content:
-    # We use HTML to ensure the logo height matches the text visually
-    st.markdown(f"""
-        <div class="header-container">
-            <img src="https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B" style="height: 60px; width: auto;">
-            <span class="title-text">Scrape That!</span>
-        </div>
-        <p class="subtitle-text">Advanced football data extraction tool</p>
-    """, unsafe_allow_html=True)
-
-st.divider()
-
-# 4. Configuration Section (Centered)
-st.markdown("<h3 style='text-align: center;'>Configuration</h3>", unsafe_allow_html=True)
-
-# Using a centered column for the form controls
-c1, c2, c3 = st.columns([1, 2, 1])
-
-with c2:
-    # Select All Logic
-    select_all = st.checkbox("Select All Leagues", value=False)
-    
-    st.write("Select Leagues:")
-    # Define available leagues
-    leagues_list = ["Premier League", "Serie A", "La Liga", "Bundesliga", "Ligue 1"]
-    
-    selected_leagues = []
-    
-    # Toggle Buttons
-    for league in leagues_list:
-        # If select_all is True, the individual toggles default to True. 
-        # Otherwise they follow their own state (defaulting to False initially).
-        is_on = st.toggle(league, value=select_all)
-        if is_on:
-            selected_leagues.append(league)
-
-    st.write("") # Spacer
-    
-    # Seasons Selection (25/26 descending)
-    seasons = ["25/26", "24/25", "23/24", "22/23", "21/22", "20/21"]
-    selected_season = st.selectbox("Select Season", seasons, index=None, placeholder="Choose a season...")
-
-# 5. Logic to show data (Placeholder)
-if selected_leagues and selected_season:
-    st.divider()
-    st.markdown(f"<h4 style='text-align: center;'>Data for {selected_season}</h4>", unsafe_allow_html=True)
-    
-    # Mock Data Creation
-    data = {
-        'League': [selected_leagues[i % len(selected_leagues)] for i in range(15)],
-        'Team': [f'Team {i+1}' for i in range(15)],
-        'Matches': [38] * 15,
-        'Points': [90 - (i*3) for i in range(15)]
+    div.stMultiSelect, div.stCheckbox {
+        width: 100%;
     }
-    df = pd.DataFrame(data)
+    </style>
+""", unsafe_allow_html=True)
 
-    # Show head(10) as requested
-    st.dataframe(df.head(10), use_container_width=True)
+# --- HEADER SECTION ---
+# Using HTML to ensure the logo and title are perfectly aligned and centered
+logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
 
-elif select_all or (selected_leagues and not selected_season):
-     st.info("Please select a season to view data.")
+st.markdown(f"""
+    <div class="header-container">
+        <img src="{logo_url}" class="header-logo">
+        <h1 class="header-title">Scrape That!</h1>
+    </div>
+    <p class="subtitle">Select leagues, seasons, and stats to download the complete dataset.</p>
+""", unsafe_allow_html=True)
+
+
+# --- CONFIGURATION (CENTERED) ---
+st.write("---")
+st.header("Configuration")
+
+# Options definition
+leagues_opt = ['Serie A', 'Premier League', 'Liga', 'Bundesliga', 'Ligue 1']
+# Seasons from 25-26 descending to 17-18
+seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(25, 16, -1)]
+stats_opt = [
+    'standard', 'gk', 'gk_advanced', 'shooting', 'passing', 
+    'pass_types', 'sca & gca', 'defense', 'possession', 
+    'playing time', 'miscellaneous'
+]
+
+# Layout columns for inputs
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.subheader("Leagues")
+    toggle_leagues = st.toggle("Select All Leagues")
+    default_leagues = leagues_opt if toggle_leagues else []
+    selected_leagues = st.multiselect("Select Leagues", leagues_opt, default=default_leagues, label_visibility="collapsed")
+
+with col2:
+    st.subheader("Seasons")
+    toggle_seasons = st.toggle("Select All Seasons")
+    default_seasons = seasons_opt if toggle_seasons else []
+    selected_seasons = st.multiselect("Select Seasons", seasons_opt, default=default_seasons, label_visibility="collapsed")
+
+with col3:
+    st.subheader("Stats")
+    toggle_stats = st.toggle("Select All Stats")
+    default_stats = stats_opt if toggle_stats else []
+    selected_stats = st.multiselect("Select Stats", stats_opt, default=default_stats, label_visibility="collapsed")
+
+st.write("") # Spacer
+start_btn = st.button("Start Scraping", type="primary", use_container_width=True)
+st.write("---")
+
+# --- SCRAPING FUNCTION ---
+def scrape_fbref_merged(leagues, seasons, stat_types):
+    status_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    league_map = {
+        'Serie A': {'id': '11', 'slug': 'Serie-A'},
+        'Premier League': {'id': '9', 'slug': 'Premier-League'},
+        'Liga': {'id': '12', 'slug': 'La-Liga'},
+        'Bundesliga': {'id': '20', 'slug': 'Bundesliga'},
+        'Ligue 1': {'id': '13', 'slug': 'Ligue-1'}
+    }
+    
+    type_map = {
+        'standard': {'url': 'stats', 'table_id': 'stats_standard'},
+        'gk': {'url': 'keepers', 'table_id': 'stats_keeper'},
+        'gk_advanced': {'url': 'keepersadv', 'table_id': 'stats_keeper_adv'},
+        'shooting': {'url': 'shooting', 'table_id': 'stats_shooting'},
+        'passing': {'url': 'passing', 'table_id': 'stats_passing'},
+        'pass_types': {'url': 'passing_types', 'table_id': 'stats_passing_types'},
+        'sca & gca': {'url': 'gca', 'table_id': 'stats_gca'},
+        'defense': {'url': 'defense', 'table_id': 'stats_defense'},
+        'possession': {'url': 'possession', 'table_id': 'stats_possession'},
+        'playing time': {'url': 'playingtime', 'table_id': 'stats_playing_time'},
+        'miscellaneous': {'url': 'misc', 'table_id': 'stats_misc'}
+    }
+
+    id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
+
+    # --- OPTIMIZED SELENIUM SETUP ---
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+
+    # CRITICAL SETTINGS FOR LINUX/STREAMLIT CLOUD
+    options.binary_location = "/usr/bin/chromium"
+    
+    try:
+        service = Service("/usr/bin/chromedriver")
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        # ANTI-BOT FIX
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+    except Exception as e:
+        st.error(f"Driver startup error: {e}")
+        return pd.DataFrame()
+
+    merged_data_storage = {}
+    
+    total_steps = len(leagues) * len(seasons) * len(stat_types)
+    current_step = 0
+
+    try:
+        for league in leagues:
+            if league not in league_map: continue
+            comp_id = league_map[league]['id']
+            comp_slug = league_map[league]['slug']
+            
+            for season in seasons:
+                group_key = (league, season)
+                
+                for s_type in stat_types:
+                    current_step += 1
+                    if total_steps > 0:
+                        progress_val = min(current_step / total_steps, 0.99)
+                        progress_bar.progress(progress_val)
+                    
+                    if s_type not in type_map: continue
+                    
+                    status_text.text(f"Scraping: {league} {season} - Table: {s_type}...")
+                    
+                    url_slug = type_map[s_type]['url']
+                    table_id_key = type_map[s_type]['table_id']
+                    
+                    # Logic for URL construction
+                    if season == '25-26': 
+                        url = f"https://fbref.com/en/comps/{comp_id}/{url_slug}/{comp_slug}-Stats"
+                    else:
+                        years = season.split('-')
+                        full_year_str = f"20{years[0]}-20{years[1]}"
+                        url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
+                    
+                    try:
+                        driver.get(url)
+                        time.sleep(random.uniform(3, 6))
+                        
+                        wait = WebDriverWait(driver, 15)
+                        table_selector = f"table[id*='{table_id_key}']"
+                        table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, table_selector)))
+                        
+                        dfs = pd.read_html(table_element.get_attribute('outerHTML'))
+                        if not dfs: continue
+                        df = dfs[0]
+                        
+                        # --- DATA CLEANING ---
+                        if isinstance(df.columns, pd.MultiIndex):
+                            new_cols = []
+                            for col in df.columns:
+                                if "Unnamed" in col[0]: new_cols.append(col[1])
+                                else: new_cols.append(f"{col[0]}_{col[1]}")
+                            df.columns = new_cols
+
+                        if 'Rk' in df.columns:
+                            df = df[df['Rk'] != 'Rk']
+                            df = df.drop(columns=['Rk'])
+                        if 'Matches' in df.columns:
+                            df = df.drop(columns=['Matches'])
+                        
+                        df = df.drop_duplicates(subset=['Player', 'Squad'])
+                        
+                        cols_to_rename = {col: f"{s_type}_{col}" for col in df.columns if col not in id_cols}
+                        df = df.rename(columns=cols_to_rename)
+
+                        if group_key not in merged_data_storage:
+                            merged_data_storage[group_key] = df
+                        else:
+                            existing_cols = merged_data_storage[group_key].columns.tolist()
+                            current_cols = df.columns.tolist()
+                            
+                            merge_on = [c for c in id_cols if c in existing_cols and c in current_cols]
+                            
+                            if merge_on:
+                                merged_data_storage[group_key] = pd.merge(
+                                    merged_data_storage[group_key], df, on=merge_on, how='outer'
+                                )
+                    except Exception as e:
+                        print(f"Scraping error {league} {season} {s_type}: {e}")
+                        continue
+
+    except Exception as main_e:
+        st.error(f"Critical error during scraping: {main_e}")
+    finally:
+        try:
+            driver.quit()
+        except:
+            pass
+        progress_bar.empty()
+        status_text.empty()
+
+    final_dfs = []
+    for (league, season), df_data in merged_data_storage.items():
+        df_data['League'] = league
+        df_data['Season'] = season
+        final_dfs.append(df_data)
+    
+    if final_dfs:
+        return pd.concat(final_dfs, ignore_index=True)
+    return pd.DataFrame()
+
+# --- EXECUTION ---
+if start_btn:
+    if not selected_leagues or not selected_seasons or not selected_stats:
+        st.warning("Please select at least one league, one season, and one statistic.")
+    else:
+        with st.spinner("Downloading data from Fbref... (This may take some time)"):
+            df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
+        
+        if not df_result.empty:
+            st.success("Scraping completed!")
+            st.write(f"Rows downloaded: {len(df_result)}")
+            
+            # Requested: Show head(10) instead of 5
+            st.dataframe(df_result.head(10))
+            
+            csv = df_result.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download CSV",
+                data=csv,
+                file_name="fbref_data_merged.csv",
+                mime="text/csv",
+                type="primary"
+            )
+        else:
+            st.error("No data found or error during scraping. Check the logs.")
