@@ -324,3 +324,48 @@ if start_btn:
             )
         else:
             st.error("No data found or error during scraping. Check the logs.")
+
+    # --- SIDEBAR: BUY ME A COFFEE ---
+with st.sidebar:
+    st.write("---")
+    
+    # CSS specifico per il bottone nella sidebar
+    st.markdown("""
+        <style>
+        .bmc-sidebar-button {
+            display: block;
+            width: 100%;
+            background-color: #000000;
+            color: #ffffff !important;
+            border: 2px solid #000000;
+            padding: 10px 0;
+            border-radius: 5px;
+            text-align: center;
+            text-decoration: none;
+            font-weight: bold;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        .bmc-sidebar-button:hover {
+            background-color: #ffffff;
+            color: #000000 !important;
+            border: 2px solid #000000;
+        }
+        .bmc-sidebar-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown(f"""
+        <div class="bmc-sidebar-container">
+            <h3 style="font-size: 1.2rem; margin-bottom: 10px;">Supporta il progetto</h3>
+            <p style="font-size: 0.9rem; margin-bottom: 10px;">Ti è stato utile?</p>
+            <a href="https://buymeacoffee.com/antoniolupo" target="_blank" class="bmc-sidebar-button">
+                ☕ Offrimi un caffè
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
