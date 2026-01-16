@@ -22,18 +22,31 @@ st.markdown("""
         color: #000000;
     }
     
-    /* Primary Buttons (Black background, White text) */
-    div.stButton > button:first-child {
-        background-color: #000000;
-        color: #ffffff;
-        border: 2px solid #000000;
+    /* Button Styles - Fixing the Black on Black issue */
+    /* We use !important to override Streamlit's default primary button styles */
+    div.stButton > button {
+        background-color: #000000 !important;
+        color: #ffffff !important;
+        border: 2px solid #000000 !important;
         border-radius: 5px;
         transition: all 0.3s;
     }
-    div.stButton > button:first-child:hover {
-        background-color: #ffffff;
-        color: #000000;
-        border: 2px solid #000000;
+    
+    /* Ensure text inside the button is white */
+    div.stButton > button p {
+        color: #ffffff !important;
+    }
+
+    /* Hover State: White Background, Black Text */
+    div.stButton > button:hover {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+        border: 2px solid #000000 !important;
+    }
+    
+    /* Ensure text inside the button turns black on hover */
+    div.stButton > button:hover p {
+        color: #000000 !important;
     }
 
     /* Headings Alignment */
@@ -82,7 +95,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- HEADER SECTION ---
-# Using HTML to ensure the logo and title are perfectly aligned and centered
 logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
 
 st.markdown(f"""
@@ -100,7 +112,6 @@ st.header("Configuration")
 
 # Options definition
 leagues_opt = ['Serie A', 'Premier League', 'Liga', 'Bundesliga', 'Ligue 1']
-# Seasons from 25-26 descending to 17-18
 seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(25, 16, -1)]
 stats_opt = [
     'standard', 'gk', 'gk_advanced', 'shooting', 'passing', 
@@ -130,7 +141,10 @@ with col3:
     selected_stats = st.multiselect("Select Stats", stats_opt, default=default_stats, label_visibility="collapsed")
 
 st.write("") # Spacer
-start_btn = st.button("Start Scraping", type="primary", use_container_width=True)
+
+# BUTTON: Removed type="primary" to let CSS handle the styling fully and avoid conflicts
+start_btn = st.button("Start Scraping", use_container_width=True)
+
 st.write("---")
 
 # --- SCRAPING FUNCTION ---
@@ -298,7 +312,7 @@ if start_btn:
             st.success("Scraping completed!")
             st.write(f"Rows downloaded: {len(df_result)}")
             
-            # Requested: Show head(10) instead of 5
+            # Show head(10) instead of 5
             st.dataframe(df_result.head(10))
             
             csv = df_result.to_csv(index=False).encode('utf-8')
@@ -306,8 +320,7 @@ if start_btn:
                 label="Download CSV",
                 data=csv,
                 file_name="fbref_data_merged.csv",
-                mime="text/csv",
-                type="primary"
+                mime="text/csv"
             )
         else:
             st.error("No data found or error during scraping. Check the logs.")
