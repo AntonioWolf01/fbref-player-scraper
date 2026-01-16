@@ -3,3 +3,4 @@ pandas
 selenium
 lxml
 html5lib
+webdriver_manager
