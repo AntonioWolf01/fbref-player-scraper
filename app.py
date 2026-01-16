@@ -13,61 +13,79 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
 
-# --- CUSTOM CSS: BLACK & WHITE THEME ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
-    /* Main Background and Text */
+    /* 1. BACKGROUND IMAGE */
     .stApp {
-        background-color: #ffffff;
-        color: #000000;
+        background-image: url("https://i.postimg.cc/TP5LtjtN/Gemini-Generated-Image-k7c480k7c480k7c4.png");
+        background-size: cover;
+        background-repeat: no-repeat;
+        background-attachment: fixed;
     }
     
-    /* Headings */
-    h1, h2, h3, h4, h5, h6, .markdown-text-container {
-        color: #000000 !important;
+    /* 2. TEXT COLOR (GAINSBORO) */
+    h1, h2, h3, h4, h5, h6, .markdown-text-container, p, label, span, div {
+        color: gainsboro !important;
         font-family: 'Helvetica', 'Arial', sans-serif;
     }
     
-    /* Buttons (Primary) - Black Background, White Text */
+    /* 3. BUTTONS */
     div.stButton > button {
         background-color: #000000;
-        color: #ffffff;
-        border: 2px solid #000000;
-        border-radius: 0px; /* Sharp edges for modern B&W look */
+        color: gainsboro;
+        border: 1px solid gainsboro;
+        border-radius: 4px;
         font-weight: bold;
     }
     div.stButton > button:hover {
-        background-color: #ffffff;
+        background-color: gainsboro;
         color: #000000;
-        border: 2px solid #000000;
+        border: 1px solid #000000;
     }
     
-    /* Progress Bar Color */
+    /* 4. PROGRESS BAR COLOR (GAINSBORO) */
     .stProgress > div > div > div > div {
-        background-color: #000000;
+        background-color: gainsboro;
     }
     
-    /* Inputs/Selectboxes */
+    /* 5. INPUTS/SELECTBOXES STYLING */
+    /* Adjust dropdown text color for visibility on white dropdown bg */
     div[data-baseweb="select"] > div {
-        border-color: #000000;
+        border-color: gainsboro;
+    }
+    div[data-baseweb="popover"] li {
+        color: black !important; /* Text inside dropdown menu needs to be black to be readable on white */
     }
     
     /* Toggle Colors */
     div[data-testid="stCheckbox"] label span {
-        color: #000000;
+        color: gainsboro;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER ---
-st.title("Scrape That!")
-st.markdown("### Select leagues, seasons, and stats to download the complete dataset.")
+# --- HEADER (LOGO + TITLE) ---
+# Usiamo HTML puro per garantire che l'altezza del logo sia identica al testo
+st.markdown("""
+<div style="display: flex; align-items: center; margin-bottom: 10px;">
+    <img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQsMic_s7uxA7wC7SxXuUFd4JX3Y5vyj0YZeA&s" 
+         style="height: 50px; margin-right: 15px; border-radius: 5px;">
+    <h1 style="margin: 0; padding: 0; font-size: 50px; line-height: 50px; color: gainsboro;">Scrape That!</h1>
+</div>
+""", unsafe_allow_html=True)
+
+# --- SUBTITLE (SMALLER & NOT BOLD) ---
+st.markdown('<p style="font-size: 16px; font-weight: normal; margin-top: -10px; margin-bottom: 20px; color: gainsboro;">Select leagues, seasons, and stats to download the complete dataset.</p>', unsafe_allow_html=True)
 st.markdown("---")
 
 # --- CONFIGURATION (CENTERED) ---
 # Options definitions
 leagues_opt = ['Serie A', 'Premier League', 'La Liga', 'Bundesliga', 'Ligue 1']
-seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(17, 26)]
+
+# Modifica ordine stagioni: range inverso da 25 a 17 (escluso 16)
+seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(25, 16, -1)]
+
 stats_opt = [
     'standard', 'gk', 'gk_advanced', 'shooting', 'passing', 
     'pass_types', 'sca & gca', 'defense', 'possession', 
@@ -77,6 +95,7 @@ stats_opt = [
 # Layout using columns for the settings
 col1, col2, col3 = st.columns(3)
 
+# Rimosso default (liste vuote)
 with col1:
     st.subheader("1. Leagues")
     all_leagues = st.toggle("Select All Leagues", value=False)
@@ -84,7 +103,7 @@ with col1:
         selected_leagues = leagues_opt
         st.caption(f"Selected: {len(selected_leagues)} Leagues")
     else:
-        selected_leagues = st.multiselect("Choose Leagues", leagues_opt, default=['Serie A'])
+        selected_leagues = st.multiselect("Choose Leagues", leagues_opt, default=[])
 
 with col2:
     st.subheader("2. Seasons")
@@ -93,7 +112,7 @@ with col2:
         selected_seasons = seasons_opt
         st.caption(f"Selected: {len(selected_seasons)} Seasons")
     else:
-        selected_seasons = st.multiselect("Choose Seasons", seasons_opt, default=['24-25'])
+        selected_seasons = st.multiselect("Choose Seasons", seasons_opt, default=[])
 
 with col3:
     st.subheader("3. Statistics")
@@ -102,7 +121,7 @@ with col3:
         selected_stats = stats_opt
         st.caption(f"Selected: {len(selected_stats)} Stat Tables")
     else:
-        selected_stats = st.multiselect("Choose Stats", stats_opt, default=['standard'])
+        selected_stats = st.multiselect("Choose Stats", stats_opt, default=[])
 
 st.markdown("---")
 start_btn = st.button("START SCRAPING", type="primary", use_container_width=True)
@@ -112,11 +131,10 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     status_text = st.empty()
     progress_bar = st.progress(0)
     
-    # Updated keys to match English UI
     league_map = {
         'Serie A': {'id': '11', 'slug': 'Serie-A'},
         'Premier League': {'id': '9', 'slug': 'Premier-League'},
-        'La Liga': {'id': '12', 'slug': 'La-Liga'}, # Changed key from 'Liga' to 'La Liga'
+        'La Liga': {'id': '12', 'slug': 'La-Liga'},
         'Bundesliga': {'id': '20', 'slug': 'Bundesliga'},
         'Ligue 1': {'id': '13', 'slug': 'Ligue-1'}
     }
@@ -272,7 +290,6 @@ if start_btn:
             st.success("Scraping completed!")
             st.write(f"Rows downloaded: {len(df_result)}")
             
-            # Show head(10) as requested
             st.dataframe(df_result.head(10))
             
             csv = df_result.to_csv(index=False).encode('utf-8')
