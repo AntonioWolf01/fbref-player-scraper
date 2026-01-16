@@ -25,6 +25,7 @@ st.markdown("""
         color: #000000;
     }
     
+    /* Global Button Styles */
     div.stButton > button {
         background-color: #000000 !important;
         color: #ffffff !important;
@@ -71,46 +72,34 @@ st.markdown("""
         line-height: 1;
         color: #000000;
     }
-    .subtitle {
-        text-align: center;
-        font-size: 1.1rem;
-        font-weight: 400;
-        color: #333333;
-        margin-top: -10px;
-        margin-bottom: 40px;
-    }
-    
-    div[data-testid="stVerticalBlock"] {
-        align-items: center;
-    }
     </style>
 """, unsafe_allow_html=True)
 
 # --- BUY ME A COFFEE POPUP ---
 @st.dialog("Support the Developer")
 def show_coffee_popup():
-    # GIF at the top
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    # Centered GIF
+    col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
+    with col_img2:
         st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
     
-    # Catchphrase
+    # Catchphrase with exact bold text
     st.markdown("""
     Let's be honest: maintaining a scraper is a game of cat and mouse, and debugging Selenium requires a steady stream of caffeine. 
     
-    If this tool saved you hours of manual copy-pasting or helped you win your Fantasy Football league, consider fueling my next coding session. I can't scrape coffee beans (yet), so I have to buy them.
+    If this tool saved you hours of manual copy-pasting or helped you win your Fantasy Football league, consider fueling my next coding session. **I can't scrape coffee beans, so I have to buy them.**
     """)
     
-    # Buy Me A Coffee Button
+    # Buy Me A Coffee Official Button
     st.markdown("""
-        <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: center; margin-bottom: 25px; margin-top: 10px;">
             <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
                 <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 50px !important;width: 180px !important;" >
             </a>
         </div>
     """, unsafe_allow_html=True)
     
-    # Explicit Skip Button
+    # Explicit Action Button
     if st.button("Continue without donating & Start Scraping", use_container_width=True):
         st.session_state.run_scrape = True
         st.rerun()
@@ -123,7 +112,9 @@ st.markdown(f"""
         <img src="{logo_url}" class="header-logo">
         <h1 class="header-title">Scrape That!</h1>
     </div>
-    <p class="subtitle">Select leagues, seasons, and stats to download the complete dataset.</p>
+    <p style="text-align: center; font-size: 1.1rem; color: #333333; margin-bottom: 40px;">
+        Select leagues, seasons, and stats to download the complete dataset.
+    </p>
 """, unsafe_allow_html=True)
 
 # --- CONFIGURATION ---
@@ -260,15 +251,17 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     
     return pd.concat(final_dfs, ignore_index=True) if final_dfs else pd.DataFrame()
 
-# --- EXECUTION ---
+# --- TRIGGER LOGIC ---
 if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
+        # Mostra il popup
         show_coffee_popup()
 
+# Questa parte viene eseguita solo dopo che l'utente preme il tasto nel popup
 if st.session_state.run_scrape:
-    st.session_state.run_scrape = False # Reset
+    st.session_state.run_scrape = False # Reset immediato
     with st.spinner("Downloading data from Fbref... (This may take some time)"):
         df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
     
