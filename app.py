@@ -25,7 +25,7 @@ st.markdown("""
         color: #000000;
     }
     
-    /* Global Button Styles */
+    /* Button Styles */
     div.stButton > button {
         background-color: #000000 !important;
         color: #ffffff !important;
@@ -78,19 +78,19 @@ st.markdown("""
 # --- BUY ME A COFFEE POPUP ---
 @st.dialog("Support the Developer")
 def show_coffee_popup():
-    # Centered GIF
+    # GIF above the text
     col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
     with col_img2:
         st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
     
-    # Catchphrase with exact bold text
+    # Text with Bold emphasis on the last sentence
     st.markdown("""
-    Let's be honest: maintaining a scraper is a game of cat and mouse, and debugging Selenium requires a steady stream of caffeine. 
+    Manual data collection is a nightmare I’ve handled so you don't have to. While you enjoy your fresh dataset, remember that this code is powered by high-quality caffeine. 
     
-    If this tool saved you hours of manual copy-pasting or helped you win your Fantasy Football league, consider fueling my next coding session. **I can't scrape coffee beans, so I have to buy them.**
+    If 'Scrape That!' provided value to your project, feel free to fuel my next update. **I can't scrape coffee beans, so I have to buy them.**
     """)
     
-    # Buy Me A Coffee Official Button
+    # Official Buy Me A Coffee Button
     st.markdown("""
         <div style="display: flex; justify-content: center; margin-bottom: 25px; margin-top: 10px;">
             <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
@@ -99,7 +99,7 @@ def show_coffee_popup():
         </div>
     """, unsafe_allow_html=True)
     
-    # Explicit Action Button
+    # Action Button to start scraping
     if st.button("Continue without donating & Start Scraping", use_container_width=True):
         st.session_state.run_scrape = True
         st.rerun()
@@ -195,8 +195,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     try:
         for league in leagues:
             if league not in league_map: continue
-            comp_id = league_map[league]['id']
-            comp_slug = league_map[league]['slug']
+            comp_id, comp_slug = league_map[league]['id'], league_map[league]['slug']
             for season in seasons:
                 group_key = (league, season)
                 for s_type in stat_types:
@@ -204,8 +203,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     progress_bar.progress(min(current_step / total_steps, 0.99))
                     status_text.text(f"Scraping: {league} {season} - {s_type}...")
                     
-                    url_slug = type_map[s_type]['url']
-                    table_id_key = type_map[s_type]['table_id']
+                    url_slug, table_id_key = type_map[s_type]['url'], type_map[s_type]['table_id']
                     
                     if season == '25-26': 
                         url = f"https://fbref.com/en/comps/{comp_id}/{url_slug}/{comp_slug}-Stats"
@@ -244,11 +242,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
         progress_bar.empty()
         status_text.empty()
 
-    final_dfs = []
-    for (league, season), df_data in merged_data_storage.items():
-        df_data['League'], df_data['Season'] = league, season
-        final_dfs.append(df_data)
-    
+    final_dfs = [df_data.assign(League=league, Season=season) for (league, season), df_data in merged_data_storage.items()]
     return pd.concat(final_dfs, ignore_index=True) if final_dfs else pd.DataFrame()
 
 # --- TRIGGER LOGIC ---
@@ -256,12 +250,11 @@ if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
-        # Mostra il popup
         show_coffee_popup()
 
-# Questa parte viene eseguita solo dopo che l'utente preme il tasto nel popup
+# Executes scraping only if state is set to True
 if st.session_state.run_scrape:
-    st.session_state.run_scrape = False # Reset immediato
+    st.session_state.run_scrape = False # Reset for next click
     with st.spinner("Downloading data from Fbref... (This may take some time)"):
         df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
     
