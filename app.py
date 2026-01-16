@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import random
+import streamlit.components.v1 as components
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -13,17 +14,10 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
 
-# --- CUSTOM CSS FOR BLACK & WHITE THEME & CENTERING ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    /* Force Black and White Theme Elements */
-    .stApp {
-        background-color: #ffffff;
-        color: #000000;
-    }
-    
-    /* Button Styles - Fixing the Black on Black issue */
-    /* We use !important to override Streamlit's default primary button styles */
+    .stApp { background-color: #ffffff; color: #000000; }
     div.stButton > button {
         background-color: #000000 !important;
         color: #ffffff !important;
@@ -31,72 +25,44 @@ st.markdown("""
         border-radius: 5px;
         transition: all 0.3s;
     }
-    
-    /* Ensure text inside the button is white */
-    div.stButton > button p {
-        color: #ffffff !important;
-    }
-
-    /* Hover State: White Background, Black Text */
+    div.stButton > button p { color: #ffffff !important; }
     div.stButton > button:hover {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 2px solid #000000 !important;
     }
-    
-    /* Ensure text inside the button turns black on hover */
-    div.stButton > button:hover p {
-        color: #000000 !important;
-    }
-
-    /* Headings Alignment */
-    h1, h2, h3, h4, p {
-        text-align: center;
-        color: #000000 !important;
-    }
-    
-    /* Custom Header Container */
-    .header-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 20px;
-        margin-bottom: 10px;
-    }
-    .header-logo {
-        height: 60px;
-        width: 60px;
-        border-radius: 10px;
-    }
-    .header-title {
-        font-size: 3.5rem;
-        font-weight: 700;
-        margin: 0;
-        line-height: 1;
-        color: #000000;
-    }
-    .subtitle {
-        text-align: center;
-        font-size: 1.1rem;
-        font-weight: 400;
-        color: #333333;
-        margin-top: -10px;
-        margin-bottom: 40px;
-    }
-    
-    /* Center Streamlit Elements */
-    div[data-testid="stVerticalBlock"] {
-        align-items: center;
-    }
-    div.stMultiSelect, div.stCheckbox {
-        width: 100%;
-    }
+    div.stButton > button:hover p { color: #000000 !important; }
+    h1, h2, h3, h4, p { text-align: center; color: #000000 !important; }
+    .header-container { display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 10px; }
+    .header-logo { height: 60px; width: 60px; border-radius: 10px; }
+    .header-title { font-size: 3.5rem; font-weight: 700; margin: 0; line-height: 1; color: #000000; }
+    .subtitle { text-align: center; font-size: 1.1rem; font-weight: 400; color: #333333; margin-top: -10px; margin-bottom: 40px; }
+    div[data-testid="stVerticalBlock"] { align-items: center; }
     </style>
 """, unsafe_allow_html=True)
 
+# --- BUY ME A COFFEE MODAL ---
+@st.dialog("Support the Dev ☕")
+def show_bmac_modal():
+    # Tenor GIF Implementation
+    components.html("""
+        <div class="tenor-gif-embed" data-postid="16868093837531698009" data-share-method="host" data-aspect-ratio="1" data-width="100%">
+            <a href="https://tenor.com/view/transparent-coffee-work-drink-penguin-gif-16868093837531698009">Transparent Coffee Sticker</a> from <a href="https://tenor.com/search/transparent-stickers">Transparent Stickers</a>
+        </div>
+        <script type="text/javascript" async src="https://tenor.com/embed.js"></script>
+    """, height=350)
+    
+    st.markdown("""
+    **Let's be honest:** maintaining a scraper is a game of cat and mouse, and debugging Selenium requires a steady stream of caffeine. 
+    
+    If this tool saved you hours of manual copy-pasting or helped you win your Fantasy Football league, consider fueling my next coding session. I can't scrape coffee beans (yet), so I have to buy them.
+    """)
+    
+    if st.button("Close & Continue", use_container_width=True):
+        st.rerun()
+
 # --- HEADER SECTION ---
 logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
-
 st.markdown(f"""
     <div class="header-container">
         <img src="{logo_url}" class="header-logo">
@@ -105,46 +71,30 @@ st.markdown(f"""
     <p class="subtitle">Select leagues, seasons, and stats to download the complete dataset.</p>
 """, unsafe_allow_html=True)
 
-
-# --- CONFIGURATION (CENTERED) ---
+# --- CONFIGURATION ---
 st.write("---")
 st.header("Configuration")
 
-# Options definition
 leagues_opt = ['Serie A', 'Premier League', 'Liga', 'Bundesliga', 'Ligue 1']
 seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(25, 16, -1)]
-stats_opt = [
-    'standard', 'gk', 'gk_advanced', 'shooting', 'passing', 
-    'pass_types', 'sca & gca', 'defense', 'possession', 
-    'playing time', 'miscellaneous'
-]
+stats_opt = ['standard', 'gk', 'gk_advanced', 'shooting', 'passing', 'pass_types', 'sca & gca', 'defense', 'possession', 'playing time', 'miscellaneous']
 
-# Layout columns for inputs
 col1, col2, col3 = st.columns(3)
-
 with col1:
     st.subheader("Leagues")
     toggle_leagues = st.toggle("Select All Leagues")
-    default_leagues = leagues_opt if toggle_leagues else []
-    selected_leagues = st.multiselect("Select Leagues", leagues_opt, default=default_leagues, label_visibility="collapsed")
-
+    selected_leagues = st.multiselect("Select Leagues", leagues_opt, default=leagues_opt if toggle_leagues else [], label_visibility="collapsed")
 with col2:
     st.subheader("Seasons")
     toggle_seasons = st.toggle("Select All Seasons")
-    default_seasons = seasons_opt if toggle_seasons else []
-    selected_seasons = st.multiselect("Select Seasons", seasons_opt, default=default_seasons, label_visibility="collapsed")
-
+    selected_seasons = st.multiselect("Select Seasons", seasons_opt, default=seasons_opt if toggle_seasons else [], label_visibility="collapsed")
 with col3:
     st.subheader("Stats")
     toggle_stats = st.toggle("Select All Stats")
-    default_stats = stats_opt if toggle_stats else []
-    selected_stats = st.multiselect("Select Stats", stats_opt, default=default_stats, label_visibility="collapsed")
+    selected_stats = st.multiselect("Select Stats", stats_opt, default=stats_opt if toggle_stats else [], label_visibility="collapsed")
 
-st.write("") # Spacer
-
-# BUTTON: Removed type="primary" to let CSS handle the styling fully and avoid conflicts
+st.write("")
 start_btn = st.button("Start Scraping", use_container_width=True)
-
 st.write("---")
 
 # --- SCRAPING FUNCTION ---
@@ -176,196 +126,104 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    # --- OPTIMIZED SELENIUM SETUP ---
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-
-    # CRITICAL SETTINGS FOR LINUX/STREAMLIT CLOUD
     options.binary_location = "/usr/bin/chromium"
     
     try:
         service = Service("/usr/bin/chromedriver")
         driver = webdriver.Chrome(service=service, options=options)
-        
-        # ANTI-BOT FIX
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     except Exception as e:
         st.error(f"Driver startup error: {e}")
         return pd.DataFrame()
 
     merged_data_storage = {}
-    
     total_steps = len(leagues) * len(seasons) * len(stat_types)
     current_step = 0
 
     try:
         for league in leagues:
-            if league not in league_map: continue
             comp_id = league_map[league]['id']
             comp_slug = league_map[league]['slug']
-            
             for season in seasons:
                 group_key = (league, season)
-                
                 for s_type in stat_types:
                     current_step += 1
-                    if total_steps > 0:
-                        progress_val = min(current_step / total_steps, 0.99)
-                        progress_bar.progress(progress_val)
+                    progress_bar.progress(min(current_step / total_steps, 0.99))
+                    status_text.text(f"Scraping: {league} {season} - {s_type}...")
                     
-                    if s_type not in type_map: continue
-                    
-                    status_text.text(f"Scraping: {league} {season} - Table: {s_type}...")
-                    
-                    url_slug = type_map[s_type]['url']
-                    table_id_key = type_map[s_type]['table_id']
-                    
-                    # Logic for URL construction
-                    if season == '25-26': 
-                        url = f"https://fbref.com/en/comps/{comp_id}/{url_slug}/{comp_slug}-Stats"
+                    url_slug, table_id_key = type_map[s_type]['url'], type_map[s_type]['table_id']
+                    if season == '25-26': url = f"https://fbref.com/en/comps/{comp_id}/{url_slug}/{comp_slug}-Stats"
                     else:
-                        years = season.split('-')
-                        full_year_str = f"20{years[0]}-20{years[1]}"
-                        url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
+                        y = season.split('-')
+                        url = f"https://fbref.com/en/comps/{comp_id}/20{y[0]}-20{y[1]}/{url_slug}/20{y[0]}-20{y[1]}-{comp_slug}-Stats"
                     
                     try:
                         driver.get(url)
-                        time.sleep(random.uniform(3, 6))
-                        
+                        time.sleep(random.uniform(3, 5))
                         wait = WebDriverWait(driver, 15)
-                        table_selector = f"table[id*='{table_id_key}']"
-                        table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, table_selector)))
+                        table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
+                        df = pd.read_html(table_element.get_attribute('outerHTML'))[0]
                         
-                        dfs = pd.read_html(table_element.get_attribute('outerHTML'))
-                        if not dfs: continue
-                        df = dfs[0]
-                        
-                        # --- DATA CLEANING ---
                         if isinstance(df.columns, pd.MultiIndex):
-                            new_cols = []
-                            for col in df.columns:
-                                if "Unnamed" in col[0]: new_cols.append(col[1])
-                                else: new_cols.append(f"{col[0]}_{col[1]}")
-                            df.columns = new_cols
-
-                        if 'Rk' in df.columns:
-                            df = df[df['Rk'] != 'Rk']
-                            df = df.drop(columns=['Rk'])
-                        if 'Matches' in df.columns:
-                            df = df.drop(columns=['Matches'])
+                            df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
+                        if 'Rk' in df.columns: df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
+                        if 'Matches' in df.columns: df = df.drop(columns=['Matches'])
                         
                         df = df.drop_duplicates(subset=['Player', 'Squad'])
-                        
-                        cols_to_rename = {col: f"{s_type}_{col}" for col in df.columns if col not in id_cols}
-                        df = df.rename(columns=cols_to_rename)
+                        df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
 
-                        if group_key not in merged_data_storage:
-                            merged_data_storage[group_key] = df
+                        if group_key not in merged_data_storage: merged_data_storage[group_key] = df
                         else:
-                            existing_cols = merged_data_storage[group_key].columns.tolist()
-                            current_cols = df.columns.tolist()
-                            
-                            merge_on = [c for c in id_cols if c in existing_cols and c in current_cols]
-                            
-                            if merge_on:
-                                merged_data_storage[group_key] = pd.merge(
-                                    merged_data_storage[group_key], df, on=merge_on, how='outer'
-                                )
-                    except Exception as e:
-                        print(f"Scraping error {league} {season} {s_type}: {e}")
-                        continue
-
-    except Exception as main_e:
-        st.error(f"Critical error during scraping: {main_e}")
+                            merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
+                            merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
+                    except: continue
     finally:
-        try:
-            driver.quit()
-        except:
-            pass
+        driver.quit()
         progress_bar.empty()
         status_text.empty()
 
-    final_dfs = []
-    for (league, season), df_data in merged_data_storage.items():
-        df_data['League'] = league
-        df_data['Season'] = season
-        final_dfs.append(df_data)
-    
-    if final_dfs:
-        return pd.concat(final_dfs, ignore_index=True)
-    return pd.DataFrame()
+    final_dfs = [df.assign(League=l, Season=s) for (l, s), df in merged_data_storage.items()]
+    return pd.concat(final_dfs, ignore_index=True) if final_dfs else pd.DataFrame()
 
-# --- EXECUTION ---
+# --- EXECUTION LOGIC ---
+
+# 1. Logic for Start Scraping
 if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
-        with st.spinner("Downloading data from Fbref... (This may take some time)"):
-            df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
-        
-        if not df_result.empty:
-            st.success("Scraping completed!")
-            st.write(f"Rows downloaded: {len(df_result)}")
-            
-            # Show head(10) instead of 5
-            st.dataframe(df_result.head(10))
-            
-            csv = df_result.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name="fbref_data_merged.csv",
-                mime="text/csv"
-            )
-        else:
-            st.error("No data found or error during scraping. Check the logs.")
+        # Trigger the popup
+        show_bmac_modal()
+        # Set a flag to start scraping after the modal is closed
+        st.session_state.ready_to_scrape = True
 
-    # --- SIDEBAR: BUY ME A COFFEE ---
-with st.sidebar:
-    st.write("---")
+# Actual Scraping Execution
+if st.session_state.get("ready_to_scrape"):
+    with st.spinner("Downloading data from Fbref..."):
+        df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
+        st.session_state.df_result = df_result
+        st.session_state.ready_to_scrape = False # Reset flag
+
+# Display Results
+if "df_result" in st.session_state and not st.session_state.df_result.empty:
+    df_res = st.session_state.df_result
+    st.success("Scraping completed!")
+    st.write(f"Rows downloaded: {len(df_res)}")
+    st.dataframe(df_res.head(10))
     
-    # CSS specifico per il bottone nella sidebar
-    st.markdown("""
-        <style>
-        .bmc-sidebar-button {
-            display: block;
-            width: 100%;
-            background-color: #000000;
-            color: #ffffff !important;
-            border: 2px solid #000000;
-            padding: 10px 0;
-            border-radius: 5px;
-            text-align: center;
-            text-decoration: none;
-            font-weight: bold;
-            transition: all 0.3s;
-            margin-top: 10px;
-        }
-        .bmc-sidebar-button:hover {
-            background-color: #ffffff;
-            color: #000000 !important;
-            border: 2px solid #000000;
-        }
-        .bmc-sidebar-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            text-align: center;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-    st.markdown(f"""
-        <div class="bmc-sidebar-container">
-            <h3 style="font-size: 1.2rem; margin-bottom: 10px;">Supporta il progetto</h3>
-            <p style="font-size: 0.9rem; margin-bottom: 10px;">Ti è stato utile?</p>
-            <a href="https://buymeacoffee.com/antoniolupo" target="_blank" class="bmc-sidebar-button">
-                ☕ Offrimi un caffè
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
+    csv = df_res.to_csv(index=False).encode('utf-8')
+    
+    # Logic for Download CSV
+    # When user clicks this, the dialog pops up, but the download is handled by the widget
+    if st.download_button(
+        label="Download CSV",
+        data=csv,
+        file_name="fbref_data_merged.csv",
+        mime="text/csv",
+        on_click=show_bmac_modal # This triggers the popup when clicked
+    ):
+        pass
