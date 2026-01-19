@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 import time
 import random
-from seleniumbase import Driver
+import os
+import shutil
+import undetected_chromedriver as uc
+from pyvirtualdisplay import Display
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -75,16 +78,19 @@ st.markdown("""
 # --- BUY ME A COFFEE POPUP ---
 @st.dialog("Support the Developer")
 def show_coffee_popup():
+    # GIF above the text
     col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
     with col_img2:
         st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
     
+    # Text with Bold emphasis on the last sentence
     st.markdown("""
     Manual data collection is a nightmare I’ve handled so you don't have to. While you enjoy your fresh dataset, remember that this code is powered by high-quality caffeine. 
     
     If 'Scrape That!' provided value to your project, feel free to fuel my next update. **I can't scrape coffee beans, so I have to buy them.**
     """)
     
+    # Official Buy Me A Coffee Button
     st.markdown("""
         <div style="display: flex; justify-content: center; margin-bottom: 25px; margin-top: 10px;">
             <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
@@ -93,12 +99,13 @@ def show_coffee_popup():
         </div>
     """, unsafe_allow_html=True)
     
+    # Action Button to start scraping
     if st.button("Continue without donating & Start Scraping", use_container_width=True):
         st.session_state.run_scrape = True
         st.rerun()
 
 # --- HEADER SECTION ---
-logo_url = "https://i.postimg.cc/1ztBVzhx/original-1629219430-1bee91998bd5462eac7c1f3ba45f86cb.webp"
+logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
 
 st.markdown(f"""
     <div class="header-container">
@@ -136,7 +143,7 @@ st.write("")
 start_btn = st.button("Start Scraping", use_container_width=True)
 st.write("---")
 
-# --- SCRAPING FUNCTION (UPDATED FOR CLOUD) ---
+# --- SCRAPING FUNCTION (CLOUD FIXED) ---
 def scrape_fbref_merged(leagues, seasons, stat_types):
     status_text = st.empty()
     progress_bar = st.progress(0)
@@ -165,15 +172,43 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    # --- SELENIUMBASE SETUP ---
-    # SeleniumBase automatically manages drivers and undetected mode.
-    # uc=True enables Undetected Mode (bypasses Cloudflare)
-    # headless=True is required for Streamlit Cloud
+    # --- 1. SETUP VIRTUAL DISPLAY ---
+    # Necessary for undetected-chromedriver to run "headless" without being flagged
+    display = Display(visible=0, size=(800, 600))
+    display.start()
+
+    # --- 2. SETUP DRIVER PATHS ---
+    # Copy system chromedriver to a writable location (/tmp) to avoid Permission Denied errors
+    system_driver_path = "/usr/bin/chromedriver"
+    writable_driver_path = "/tmp/chromedriver"
+    
+    # Only copy if we haven't already (or if system driver exists)
+    if os.path.exists(system_driver_path):
+        try:
+            shutil.copyfile(system_driver_path, writable_driver_path)
+            os.chmod(writable_driver_path, 0o755) # Make executable
+        except Exception as e:
+            st.error(f"Could not copy driver: {e}")
+            display.stop()
+            return pd.DataFrame()
+    
+    # --- 3. INIT UNDETECTED DRIVER ---
+    options = uc.ChromeOptions()
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    
     try:
-        # We start the driver once
-        driver = Driver(uc=True, headless=True)
+        driver = uc.Chrome(
+            options=options,
+            driver_executable_path=writable_driver_path, 
+            version_main=131 # Optional: Remove if version mismatch occurs
+        )
     except Exception as e:
-        st.error(f"Driver startup error: {e}")
+        st.error(f"Driver startup failed: {e}")
+        try:
+            display.stop()
+        except:
+            pass
         return pd.DataFrame()
 
     merged_data_storage = {}
@@ -201,22 +236,15 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                         url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
                     
                     try:
-                        # uc_open_with_reconnect helps bypass tough Cloudflare checks
-                        if hasattr(driver, 'uc_open_with_reconnect'):
-                            driver.uc_open_with_reconnect(url, reconnect_time=6)
-                        else:
-                            driver.get(url)
-                            
-                        time.sleep(random.uniform(4, 7)) # Generous sleep for Cloudflare
+                        driver.get(url)
+                        time.sleep(random.uniform(5, 8)) # Wait for Cloudflare
                         
-                        # Use driver.find_element logic (SeleniumBase is compatible with standard Selenium)
                         wait = WebDriverWait(driver, 20)
                         table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
                         
-                        # Extract HTML directly from the element
-                        table_html = table_element.get_attribute('outerHTML')
-                        dfs = pd.read_html(table_html)
-                        
+                        # Use outerHTML to parse with pandas
+                        html_content = table_element.get_attribute('outerHTML')
+                        dfs = pd.read_html(html_content)
                         if not dfs: continue
                         df = dfs[0]
                         
@@ -234,12 +262,12 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                             merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
                             if merge_on:
                                 merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
-                    except Exception as e:
-                        print(f"Error on {url}: {e}")
+                    except:
                         continue
     finally:
         try:
             driver.quit()
+            display.stop()
         except:
             pass
         progress_bar.empty()
