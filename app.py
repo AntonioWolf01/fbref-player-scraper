@@ -1,9 +1,30 @@
 import streamlit as st
-import pandas as pd
-import time
-import random
+import sys
+import types
 import os
 import subprocess
+import time
+import random
+
+# --- PATCH BLOCK (CRITICAL FOR PYTHON 3.12+) ---
+# undetected-chromedriver uses 'distutils' which was removed in Python 3.12.
+# We manually inject a replacement using 'packaging' to stop the crash.
+if sys.version_info >= (3, 12):
+    from packaging.version import Version
+    
+    # Create a fake 'distutils' module
+    m = types.ModuleType("distutils")
+    m.version = types.ModuleType("distutils.version")
+    
+    # Map LooseVersion to the modern Version class
+    m.version.LooseVersion = Version
+    
+    # Inject into system modules so undetected_chromedriver finds it
+    sys.modules["distutils"] = m
+    sys.modules["distutils.version"] = m.version
+# -----------------------------------------------
+
+import pandas as pd
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
