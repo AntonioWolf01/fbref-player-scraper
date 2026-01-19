@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 import random
+import os
+import subprocess
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -21,8 +23,6 @@ st.markdown("""
         background-color: #ffffff;
         color: #000000;
     }
-    
-    /* Button Styles */
     div.stButton > button {
         background-color: #000000 !important;
         color: #ffffff !important;
@@ -30,26 +30,21 @@ st.markdown("""
         border-radius: 5px;
         transition: all 0.3s;
     }
-    
     div.stButton > button p {
         color: #ffffff !important;
     }
-
     div.stButton > button:hover {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 2px solid #000000 !important;
     }
-    
     div.stButton > button:hover p {
         color: #000000 !important;
     }
-
     h1, h2, h3, h4, p {
         text-align: center;
         color: #000000 !important;
     }
-    
     .header-container {
         display: flex;
         justify-content: center;
@@ -71,6 +66,21 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+
+# --- HELPER: GET CHROMIUM VERSION ---
+def get_chromium_version():
+    """Detects the installed Chromium version to match driver."""
+    try:
+        # Check version via command line
+        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        # Parse output like "Chromium 119.0.6045.105 ..." -> 119
+        for part in version_str.split():
+            if '.' in part and part.replace('.', '').isdigit():
+                return int(part.split('.')[0])
+        return None
+    except Exception as e:
+        return None
 
 # --- BUY ME A COFFEE POPUP ---
 @st.dialog("Support the Developer")
@@ -99,7 +109,6 @@ def show_coffee_popup():
 
 # --- HEADER SECTION ---
 logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
-
 st.markdown(f"""
     <div class="header-container">
         <img src="{logo_url}" class="header-logo">
@@ -165,26 +174,30 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    # --- UNDETECTED CHROMEDRIVER SETUP ---
-    options = uc.ChromeOptions()
-    options.add_argument("--headless=new")  # Modern headless mode (stealthier)
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    # No manual user-agent needed; UC handles this, but you can add one if strict.
-    
+    # --- DRIVER SETUP ---
     driver = None
     try:
-        # We point to the system chromium (installed via packages.txt)
-        # UC will download a matching driver to the user home dir automatically.
+        options = uc.ChromeOptions()
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        
+        # Detect version to avoid mismatch errors
+        version_main = get_chromium_version()
+        if not version_main:
+            version_main = 131 # Fallback to a recent version if detection fails
+            
         driver = uc.Chrome(
             options=options, 
             browser_executable_path="/usr/bin/chromium",
-            version_main=None # Let UC auto-detect version
+            version_main=version_main
         )
     except Exception as e:
-        st.error(f"Driver startup error: {e}")
+        st.error(f"CRITICAL DRIVER ERROR: {str(e)}")
+        # Provide a cleaner error if it's a version mismatch
+        if "version" in str(e).lower():
+            st.warning("This is likely a version mismatch. The app tried to use Chromium version " + str(version_main))
         return pd.DataFrame()
 
     merged_data_storage = {}
@@ -213,13 +226,11 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     
                     try:
                         driver.get(url)
-                        # Random sleep to mimic human behavior
                         time.sleep(random.uniform(4, 7))
                         
                         wait = WebDriverWait(driver, 15)
                         table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
                         
-                        # Use lxml for faster parsing if possible
                         dfs = pd.read_html(table_element.get_attribute('outerHTML'))
                         if not dfs: continue
                         df = dfs[0]
@@ -239,8 +250,8 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                             if merge_on:
                                 merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
                     except Exception as e:
-                        # Optional: Log warning but continue
-                        # st.warning(f"Could not scrape {league} {season} {s_type}: {e}")
+                        # Log specific url failures if needed
+                        # st.warning(f"Failed {url}: {e}")
                         continue
     finally:
         if driver:
@@ -271,4 +282,4 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found or error during scraping. The site may be blocking access.")
+        st.error("No data found. This might be due to blocking or an error (see above).")
