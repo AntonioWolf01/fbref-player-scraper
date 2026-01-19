@@ -4,6 +4,3 @@ selenium
 lxml
 html5lib
 webdriver_manager
-seleniumbase
-undetected-chromedriver
-pyvirtualdisplay
