@@ -1,10 +1,30 @@
+import sys
+import types
+import os
+
+# --- PATCH BLOCK (CRITICAL FOR PYTHON 3.12+) ---
+# This must run BEFORE importing undetected_chromedriver
+if sys.version_info >= (3, 12):
+    import packaging.version
+    
+    # Create a fake 'distutils' module
+    m = types.ModuleType("distutils")
+    m.version = types.ModuleType("distutils.version")
+    
+    # Map LooseVersion to the modern Version class
+    m.version.LooseVersion = packaging.version.Version
+    
+    # Inject into system modules
+    sys.modules["distutils"] = m
+    sys.modules["distutils.version"] = m.version
+# -----------------------------------------------
+
 import streamlit as st
 import pandas as pd
 import time
 import random
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+import subprocess
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -12,19 +32,14 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
 
-# Initialize session state for scraping trigger
+# Initialize session state
 if "run_scrape" not in st.session_state:
     st.session_state.run_scrape = False
 
 # --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #ffffff;
-        color: #000000;
-    }
-    
-    /* Button Styles */
+    .stApp { background-color: #ffffff; color: #000000; }
     div.stButton > button {
         background-color: #000000 !important;
         color: #ffffff !important;
@@ -32,64 +47,49 @@ st.markdown("""
         border-radius: 5px;
         transition: all 0.3s;
     }
-    
-    div.stButton > button p {
-        color: #ffffff !important;
-    }
-
+    div.stButton > button p { color: #ffffff !important; }
     div.stButton > button:hover {
         background-color: #ffffff !important;
         color: #000000 !important;
         border: 2px solid #000000 !important;
     }
-    
-    div.stButton > button:hover p {
-        color: #000000 !important;
-    }
-
-    h1, h2, h3, h4, p {
-        text-align: center;
-        color: #000000 !important;
-    }
-    
+    div.stButton > button:hover p { color: #000000 !important; }
+    h1, h2, h3, h4, p { text-align: center; color: #000000 !important; }
     .header-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 20px;
-        margin-bottom: 10px;
+        display: flex; justify-content: center; align-items: center;
+        gap: 20px; margin-bottom: 10px;
     }
-    .header-logo {
-        height: 60px;
-        width: 60px;
-        border-radius: 10px;
-    }
-    .header-title {
-        font-size: 3.5rem;
-        font-weight: 700;
-        margin: 0;
-        line-height: 1;
-        color: #000000;
-    }
+    .header-logo { height: 60px; width: 60px; border-radius: 10px; }
+    .header-title { font-size: 3.5rem; font-weight: 700; margin: 0; line-height: 1; color: #000000; }
     </style>
 """, unsafe_allow_html=True)
+
+# --- HELPER: GET CHROMIUM VERSION ---
+def get_chromium_version():
+    """Detects the installed Chromium version."""
+    try:
+        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
+        version_str = result.stdout.strip()
+        for part in version_str.split():
+            if '.' in part and part.replace('.', '').isdigit():
+                return int(part.split('.')[0])
+        return 131 # Default fallback
+    except:
+        return 131
 
 # --- BUY ME A COFFEE POPUP ---
 @st.dialog("Support the Developer")
 def show_coffee_popup():
-    # GIF above the text
     col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
     with col_img2:
         st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
     
-    # Text with Bold emphasis on the last sentence
     st.markdown("""
-    Manual data collection is a nightmare I've handled so you don't have to. While you enjoy your fresh dataset, remember that this code is powered by high-quality caffeine. 
+    Manual data collection is a nightmare I’ve handled so you don't have to. While you enjoy your fresh dataset, remember that this code is powered by high-quality caffeine. 
     
     If 'Scrape That!' provided value to your project, feel free to fuel my next update. **I can't scrape coffee beans, so I have to buy them.**
     """)
     
-    # Official Buy Me A Coffee Button
     st.markdown("""
         <div style="display: flex; justify-content: center; margin-bottom: 25px; margin-top: 10px;">
             <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
@@ -98,14 +98,12 @@ def show_coffee_popup():
         </div>
     """, unsafe_allow_html=True)
     
-    # Action Button to start scraping
     if st.button("Continue without donating & Start Scraping", use_container_width=True):
         st.session_state.run_scrape = True
         st.rerun()
 
 # --- HEADER SECTION ---
 logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
-
 st.markdown(f"""
     <div class="header-container">
         <img src="{logo_url}" class="header-logo">
@@ -171,84 +169,39 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    options = Options()
-    
-    # Streamlit Cloud optimized options
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    
-    # Memory and stability optimizations for Streamlit Cloud
-    options.add_argument("--single-process")
-    options.add_argument("--disable-dev-tools")
-    options.add_argument("--no-zygote")
-    options.add_argument("--remote-debugging-port=9222")
-    
-    # More realistic user agent
-    options.add_argument("user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-    
-    # Additional stealth arguments
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-infobars")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-popup-blocking")
-    options.add_argument("--disable-notifications")
-    options.add_argument("--disable-logging")
-    options.add_argument("--disable-permissions-api")
-    
-    # Set preferences
-    options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-    options.add_experimental_option('useAutomationExtension', False)
-    
-    # Page load strategy for faster loading
-    options.page_load_strategy = 'normal'
-    
-    options.binary_location = "/usr/bin/chromium"
-    
+    # --- DRIVER SETUP ---
     driver = None
     try:
-        service = Service("/usr/bin/chromedriver")
-        driver = webdriver.Chrome(service=service, options=options)
+        options = uc.ChromeOptions()
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
         
-        # Set timeouts to prevent hangs
-        driver.set_page_load_timeout(30)
-        driver.set_script_timeout(30)
-        driver.implicitly_wait(10)
+        # Detect version to avoid mismatch errors
+        version_main = get_chromium_version()
         
-        # Execute stealth scripts
-        stealth_js = """
-        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-        window.chrome = { runtime: {} };
-        Object.defineProperty(navigator, 'permissions', {get: () => ({query: () => Promise.resolve({state: 'granted'})})});
-        """
-        driver.execute_script(stealth_js)
-        
+        driver = uc.Chrome(
+            options=options, 
+            browser_executable_path="/usr/bin/chromium",
+            version_main=version_main
+        )
     except Exception as e:
-        st.error(f"Driver startup error: {e}")
-        if driver:
-            driver.quit()
+        st.error(f"CRITICAL DRIVER ERROR: {str(e)}")
+        if "version" in str(e).lower():
+            st.warning("This is likely a version mismatch. The app tried to use Chromium version " + str(version_main))
         return pd.DataFrame()
 
     merged_data_storage = {}
     total_steps = len(leagues) * len(seasons) * len(stat_types)
     current_step = 0
-    failed_attempts = 0
-    max_retries = 2
 
     try:
         for league in leagues:
-            if league not in league_map: 
-                continue
+            if league not in league_map: continue
             comp_id, comp_slug = league_map[league]['id'], league_map[league]['slug']
-            
             for season in seasons:
                 group_key = (league, season)
-                
                 for s_type in stat_types:
                     current_step += 1
                     progress_bar.progress(min(current_step / total_steps, 0.99))
@@ -263,83 +216,33 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                         full_year_str = f"20{years[0]}-20{years[1]}"
                         url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
                     
-                    retry_count = 0
-                    success = False
-                    
-                    while retry_count < max_retries and not success:
-                        try:
-                            driver.get(url)
-                            
-                            # Wait with randomness
-                            time.sleep(random.uniform(3, 6))
-                            
-                            # Simulate human behavior
-                            try:
-                                driver.execute_script("window.scrollTo(0, Math.floor(Math.random() * 500));")
-                                time.sleep(random.uniform(0.3, 0.8))
-                            except:
-                                pass
-                            
-                            # Wait for table
-                            wait = WebDriverWait(driver, 15)
-                            table_element = wait.until(
-                                EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']"))
-                            )
-                            
-                            # Additional wait for table to fully load
-                            time.sleep(random.uniform(1, 2))
-                            
-                            dfs = pd.read_html(table_element.get_attribute('outerHTML'))
-                            if not dfs: 
-                                retry_count += 1
-                                continue
-                                
-                            df = dfs[0]
-                            
-                            if isinstance(df.columns, pd.MultiIndex):
-                                df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
+                    try:
+                        driver.get(url)
+                        time.sleep(random.uniform(4, 7))
+                        
+                        wait = WebDriverWait(driver, 15)
+                        table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
+                        
+                        dfs = pd.read_html(table_element.get_attribute('outerHTML'))
+                        if not dfs: continue
+                        df = dfs[0]
+                        
+                        if isinstance(df.columns, pd.MultiIndex):
+                            df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
 
-                            if 'Rk' in df.columns: 
-                                df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
-                            if 'Matches' in df.columns: 
-                                df = df.drop(columns=['Matches'])
-                            df = df.drop_duplicates(subset=['Player', 'Squad'])
-                            df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
+                        if 'Rk' in df.columns: df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
+                        if 'Matches' in df.columns: df = df.drop(columns=['Matches'])
+                        df = df.drop_duplicates(subset=['Player', 'Squad'])
+                        df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
 
-                            if group_key not in merged_data_storage:
-                                merged_data_storage[group_key] = df
-                            else:
-                                merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
-                                if merge_on:
-                                    merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
-                            
-                            success = True
-                            failed_attempts = 0  # Reset on success
-                            
-                        except Exception as page_error:
-                            retry_count += 1
-                            failed_attempts += 1
-                            
-                            if retry_count < max_retries:
-                                time.sleep(random.uniform(2, 4))  # Wait before retry
-                            else:
-                                st.warning(f"⚠️ Failed after {max_retries} attempts: {league} {season} - {s_type}")
-                            
-                            # If too many consecutive failures, recreate driver
-                            if failed_attempts > 5:
-                                try:
-                                    driver.quit()
-                                    time.sleep(3)
-                                    driver = webdriver.Chrome(service=service, options=options)
-                                    driver.set_page_load_timeout(30)
-                                    driver.set_script_timeout(30)
-                                    driver.implicitly_wait(10)
-                                    driver.execute_script(stealth_js)
-                                    failed_attempts = 0
-                                    st.info("♻️ Browser restarted for stability")
-                                except:
-                                    pass
-                    
+                        if group_key not in merged_data_storage:
+                            merged_data_storage[group_key] = df
+                        else:
+                            merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
+                            if merge_on:
+                                merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
+                    except Exception as e:
+                        continue
     finally:
         if driver:
             try:
@@ -361,7 +264,7 @@ if start_btn:
 
 # Executes scraping only if state is set to True
 if st.session_state.run_scrape:
-    st.session_state.run_scrape = False # Reset for next click
+    st.session_state.run_scrape = False
     with st.spinner("Downloading data from Fbref... (This may take some time)"):
         df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
     
@@ -372,4 +275,4 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found or error during scraping.")
+        st.error("No data found. This might be due to blocking or an error (see above).")
