@@ -1,42 +1,28 @@
-import sys
-import types
-import os
-
-# --- PATCH BLOCK (CRITICAL FOR PYTHON 3.12+) ---
-# This must run BEFORE importing undetected_chromedriver
-if sys.version_info >= (3, 12):
-    import packaging.version
-    
-    # Create a fake 'distutils' module
-    m = types.ModuleType("distutils")
-    m.version = types.ModuleType("distutils.version")
-    
-    # Map LooseVersion to the modern Version class
-    m.version.LooseVersion = packaging.version.Version
-    
-    # Inject into system modules
-    sys.modules["distutils"] = m
-    sys.modules["distutils.version"] = m.version
-# -----------------------------------------------
-
 import streamlit as st
 import pandas as pd
 import time
 import random
-import subprocess
+import logging
+from fake_useragent import UserAgent
+
+# Anti-Detection Imports
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Scrape That!", layout="wide")
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Initialize session state
+# --- PAGE CONFIGURATION ---
+st.set_page_config(page_title="Scrape That! (Stealth Mode)", layout="wide")
+
+# Initialize session state for scraping trigger
 if "run_scrape" not in st.session_state:
     st.session_state.run_scrape = False
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (Preserved from original) ---
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; color: #000000; }
@@ -56,40 +42,89 @@ st.markdown("""
     div.stButton > button:hover p { color: #000000 !important; }
     h1, h2, h3, h4, p { text-align: center; color: #000000 !important; }
     .header-container {
-        display: flex; justify-content: center; align-items: center;
-        gap: 20px; margin-bottom: 10px;
+        display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 10px;
     }
     .header-logo { height: 60px; width: 60px; border-radius: 10px; }
     .header-title { font-size: 3.5rem; font-weight: 700; margin: 0; line-height: 1; color: #000000; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- HELPER: GET CHROMIUM VERSION ---
-def get_chromium_version():
-    """Detects the installed Chromium version."""
-    try:
-        result = subprocess.run(['chromium', '--version'], capture_output=True, text=True)
-        version_str = result.stdout.strip()
-        for part in version_str.split():
-            if '.' in part and part.replace('.', '').isdigit():
-                return int(part.split('.')[0])
-        return 131 # Default fallback
-    except:
-        return 131
+# --- HELPER: HUMAN BEHAVIOR SIMULATION ---
+def random_sleep(min_s=2.5, max_s=5.5):
+    """Adds randomized jitter to sleep times."""
+    jitter = random.uniform(0.1, 0.9)
+    time.sleep(random.uniform(min_s, max_s) + jitter)
 
-# --- BUY ME A COFFEE POPUP ---
+def simulate_human_scroll(driver):
+    """
+    Scrolls the page slightly to trigger lazy loading and mimic reading.
+    This is critical for bypassing 'interaction' checks.
+    """
+    try:
+        total_height = int(driver.execute_script("return document.body.scrollHeight"))
+        for i in range(1, random.randint(2, 4)):
+            scroll_dist = random.randint(300, 700)
+            driver.execute_script(f"window.scrollBy(0, {scroll_dist});")
+            time.sleep(random.uniform(0.5, 1.2))
+    except Exception:
+        pass
+
+# --- DRIVER FACTORY ---
+def get_stealth_driver():
+    """
+    Initializes a patched Chrome instance using undetected-chromedriver.
+    """
+    options = uc.ChromeOptions()
+    
+    # Critical: Use the 'new' headless mode for better evasion
+    options.add_argument("--headless=new") 
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    
+    # Rotate User Agent
+    try:
+        ua = UserAgent()
+        user_agent = ua.random
+        options.add_argument(f'--user-agent={user_agent}')
+    except:
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+
+    # Environment handling for Streamlit Cloud vs Local
+    # We attempt to let uc find the binary, or fallback to standard paths
+    browser_path = "/usr/bin/chromium" # Standard for Debian/Streamlit Cloud
+    driver_path = "/usr/bin/chromedriver"
+
+    try:
+        # Attempt 1: Let undetected_chromedriver handle everything
+        driver = uc.Chrome(options=options)
+    except Exception as e:
+        logger.warning(f"Standard UC init failed, trying explicit paths: {e}")
+        try:
+            # Attempt 2: Explicit paths (common in Streamlit Cloud environments)
+            driver = uc.Chrome(
+                options=options, 
+                browser_executable_path=browser_path,
+                driver_executable_path=driver_path,
+                version_main=120 # Adjust based on installed Chromium version
+            )
+        except Exception as e2:
+            st.error(f"Critical Driver Error: Could not initialize browser. Log: {e2}")
+            return None
+            
+    return driver
+
+# --- BUY ME A COFFEE POPUP (Preserved) ---
 @st.dialog("Support the Developer")
 def show_coffee_popup():
     col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
     with col_img2:
         st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
-    
     st.markdown("""
     Manual data collection is a nightmare I’ve handled so you don't have to. While you enjoy your fresh dataset, remember that this code is powered by high-quality caffeine. 
-    
     If 'Scrape That!' provided value to your project, feel free to fuel my next update. **I can't scrape coffee beans, so I have to buy them.**
     """)
-    
     st.markdown("""
         <div style="display: flex; justify-content: center; margin-bottom: 25px; margin-top: 10px;">
             <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
@@ -97,7 +132,6 @@ def show_coffee_popup():
             </a>
         </div>
     """, unsafe_allow_html=True)
-    
     if st.button("Continue without donating & Start Scraping", use_container_width=True):
         st.session_state.run_scrape = True
         st.rerun()
@@ -169,28 +203,10 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    # --- DRIVER SETUP ---
-    driver = None
-    try:
-        options = uc.ChromeOptions()
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        
-        # Detect version to avoid mismatch errors
-        version_main = get_chromium_version()
-        
-        driver = uc.Chrome(
-            options=options, 
-            browser_executable_path="/usr/bin/chromium",
-            version_main=version_main
-        )
-    except Exception as e:
-        st.error(f"CRITICAL DRIVER ERROR: {str(e)}")
-        if "version" in str(e).lower():
-            st.warning("This is likely a version mismatch. The app tried to use Chromium version " + str(version_main))
-        return pd.DataFrame()
+    # --- MODIFIED: Use Stealth Driver ---
+    driver = get_stealth_driver()
+    if not driver:
+        st.stop() # Stop execution if driver fails
 
     merged_data_storage = {}
     total_steps = len(leagues) * len(seasons) * len(stat_types)
@@ -218,15 +234,18 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     
                     try:
                         driver.get(url)
-                        time.sleep(random.uniform(4, 7))
+                        
+                        # --- MODIFIED: Human behavior ---
+                        simulate_human_scroll(driver) 
+                        random_sleep(3, 6) # Jittered sleep
                         
                         wait = WebDriverWait(driver, 15)
                         table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
-                        
                         dfs = pd.read_html(table_element.get_attribute('outerHTML'))
                         if not dfs: continue
                         df = dfs[0]
                         
+                        # Core logic preserved 
                         if isinstance(df.columns, pd.MultiIndex):
                             df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
 
@@ -242,27 +261,24 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                             if merge_on:
                                 merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
                     except Exception as e:
+                        # Log error but continue
+                        logger.error(f"Error scraping {url}: {e}")
                         continue
     finally:
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
+        driver.quit()
         progress_bar.empty()
         status_text.empty()
 
     final_dfs = [df_data.assign(League=league, Season=season) for (league, season), df_data in merged_data_storage.items()]
     return pd.concat(final_dfs, ignore_index=True) if final_dfs else pd.DataFrame()
 
-# --- TRIGGER LOGIC ---
+# --- TRIGGER LOGIC (Preserved) ---
 if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
         show_coffee_popup()
 
-# Executes scraping only if state is set to True
 if st.session_state.run_scrape:
     st.session_state.run_scrape = False
     with st.spinner("Downloading data from Fbref... (This may take some time)"):
@@ -275,4 +291,4 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found. This might be due to blocking or an error (see above).")
+        st.error("No data found or error during scraping.")
