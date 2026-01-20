@@ -36,6 +36,28 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- GLOBAL FUNCTIONS (DEFINED HERE TO PREVENT CRASHES) ---
+@st.dialog("Support the Developer")
+def show_coffee_popup():
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
+    st.markdown("""
+    I've upgraded the scraper to use **Chrome Network Impersonation** to bypass blocks!
+    
+    If this tool saves you time, please consider fueling my next update.
+    """)
+    st.markdown("""
+        <div style="display: flex; justify-content: center; margin-bottom: 25px;">
+            <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
+                <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" style="height: 50px !important;width: 180px !important;" >
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+    if st.button("Continue & Start Scraping", use_container_width=True):
+        st.session_state.run_scrape = True
+        st.rerun()
+
 # --- HEADER SECTION ---
 logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
 st.markdown(f"""
@@ -108,7 +130,7 @@ def test_and_get_working_proxy(proxy_list):
     random.shuffle(proxy_list)
     status_msg = st.empty()
     
-    # Try max 10 proxies to save time
+    # Try max 15 proxies to save time
     for i, proxy_ip in enumerate(proxy_list[:15]):
         proxy_url = f"http://{proxy_ip}"
         proxies = {"http": proxy_url, "https": proxy_url}
@@ -229,8 +251,6 @@ def scrape_fbref_merged(leagues, seasons, stat_types, use_auto, manual_proxy_str
                         continue
                         
                     if response.status_code == 403:
-                        # If blocked and using auto-proxy, try to get a new one? 
-                        # For simplicity, we just warn and wait.
                         print("403 Blocked. Retrying...")
                         time.sleep(random.uniform(2, 5))
                         continue
@@ -281,6 +301,7 @@ if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
+        # Call the global function
         show_coffee_popup()
 
 # Executes scraping only if state is set to True
