@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 import random
+import os
+import shutil
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -9,6 +11,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium_stealth import stealth
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
@@ -144,6 +147,56 @@ start_btn = st.button("Start Scraping", use_container_width=True)
 st.write("---")
 
 # --- SCRAPING FUNCTION ---
+def get_driver():
+    """Initializes a stealthy Selenium driver."""
+    options = Options()
+    
+    # Key Fix: Use "new" headless mode which is harder to detect
+    options.add_argument("--headless=new") 
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    
+    # Anti-bot detection arguments
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    
+    # Locate Chromium binary (Streamlit Cloud specific or local fallback)
+    if os.path.exists("/usr/bin/chromium"):
+        options.binary_location = "/usr/bin/chromium"
+    elif shutil.which("chromium"):
+        options.binary_location = shutil.which("chromium")
+    elif shutil.which("chrome"):
+        options.binary_location = shutil.which("chrome")
+
+    # Driver Service setup
+    try:
+        # Check for system driver (Streamlit Cloud)
+        if os.path.exists("/usr/bin/chromedriver"):
+            service = Service("/usr/bin/chromedriver")
+        else:
+            # Fallback to webdriver_manager (Local)
+            service = Service(ChromeDriverManager().install())
+            
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        # --- STEALTH MODE ACTIVATION ---
+        # This overwrites navigator.webdriver and other bot flags
+        stealth(driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
+        return driver
+    except Exception as e:
+        st.error(f"Driver startup error: {e}")
+        return None
+
 def scrape_fbref_merged(leagues, seasons, stat_types):
     status_text = st.empty()
     progress_bar = st.progress(0)
@@ -172,20 +225,8 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    options.binary_location = "/usr/bin/chromium"
-    
-    try:
-        service = Service("/usr/bin/chromedriver")
-        driver = webdriver.Chrome(service=service, options=options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-    except Exception as e:
-        st.error(f"Driver startup error: {e}")
+    driver = get_driver()
+    if not driver:
         return pd.DataFrame()
 
     merged_data_storage = {}
@@ -214,10 +255,20 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     
                     try:
                         driver.get(url)
-                        time.sleep(random.uniform(3, 6))
+                        
+                        # Increased sleep time to mimic human behavior better
+                        time.sleep(random.uniform(4, 7))
+                        
+                        # Check if we were blocked
+                        if "403 Forbidden" in driver.title or "Access Denied" in driver.page_source:
+                            st.warning(f"Access denied for {league} {season}. Skipping...")
+                            continue
+
                         wait = WebDriverWait(driver, 15)
                         table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
-                        dfs = pd.read_html(table_element.get_attribute('outerHTML'))
+                        
+                        # Parse with lxml for speed
+                        dfs = pd.read_html(table_element.get_attribute('outerHTML'), flavor='lxml')
                         if not dfs: continue
                         df = dfs[0]
                         
@@ -235,7 +286,9 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                             merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
                             if merge_on:
                                 merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
-                    except:
+                    except Exception as e:
+                        # Optional: Print error to console only for debugging, not UI
+                        print(f"Error scraping {url}: {e}")
                         continue
     finally:
         driver.quit()
@@ -265,4 +318,4 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found or error during scraping.")
+        st.error("No data found. This may be due to bot detection or the selected criteria. Try reducing the number of requests.")
