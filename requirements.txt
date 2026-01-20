@@ -9,3 +9,4 @@ fake-useragent
 packaging
 selenium-stealth
 pyvirtualdisplay
+DrissionPage
