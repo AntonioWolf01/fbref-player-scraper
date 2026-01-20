@@ -3,12 +3,13 @@ import pandas as pd
 import time
 import random
 import re
+import requests as standard_requests
 from io import StringIO
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="Scrape That!", layout="wide")
+st.set_page_config(page_title="Scrape That! (Proxy Edition)", layout="wide")
 
 # Initialize session state
 if "run_scrape" not in st.session_state:
@@ -43,19 +44,20 @@ st.markdown(f"""
         <h1 class="header-title">Scrape That!</h1>
     </div>
     <p style="text-align: center; font-size: 1.1rem; color: #333333; margin-bottom: 40px;">
-        Select leagues, seasons, and stats to download the complete dataset.
+        <b>Proxy Edition:</b> Uses IP rotation to bypass server blocks.
     </p>
 """, unsafe_allow_html=True)
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION & SIDEBAR ---
 st.write("---")
 st.header("Configuration")
 
-# Sidebar for Advanced Settings (Proxy)
+# Sidebar: Proxy Logic
 with st.sidebar:
-    st.header("Advanced Settings")
-    st.info("If the server IP is blocked, add a proxy string here.")
-    proxy_url = st.text_input("Proxy URL (Optional)", placeholder="http://user:pass@ip:port")
+    st.header("Connection Settings")
+    use_auto_proxy = st.checkbox("🔄 Auto-Rotate Free Proxies", value=True, help="Automatically fetches public proxies to bypass IP bans.")
+    st.caption("OR use your own:")
+    manual_proxy = st.text_input("Custom Proxy URL", placeholder="http://user:pass@ip:port")
 
 leagues_opt = ['Serie A', 'Premier League', 'Liga', 'Bundesliga', 'Ligue 1']
 seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(25, 16, -1)]
@@ -75,47 +77,96 @@ with c3:
 start_btn = st.button("Start Scraping", use_container_width=True)
 st.write("---")
 
+# --- PROXY UTILITIES ---
+def get_free_proxies():
+    """Fetches a list of free HTTPS proxies from public APIs."""
+    proxies = []
+    try:
+        # Source 1: Proxyscrape
+        url1 = "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=5000&country=all&ssl=all&anonymity=all"
+        r1 = standard_requests.get(url1, timeout=5)
+        if r1.status_code == 200:
+            proxies += r1.text.strip().split('\r\n')
+        
+        # Source 2: Proxy List Download
+        url2 = "https://www.proxy-list.download/api/v1/get?type=https"
+        r2 = standard_requests.get(url2, timeout=5)
+        if r2.status_code == 200:
+            proxies += r2.text.strip().split('\r\n')
+            
+    except Exception as e:
+        print(f"Proxy fetch error: {e}")
+    
+    # Remove empty strings and duplicates
+    return list(set([p for p in proxies if p]))
+
+def test_and_get_working_proxy(proxy_list):
+    """
+    Tries proxies from the list until one connects to FBref.
+    Returns the working proxy dict or None.
+    """
+    random.shuffle(proxy_list)
+    status_msg = st.empty()
+    
+    # Try max 10 proxies to save time
+    for i, proxy_ip in enumerate(proxy_list[:15]):
+        proxy_url = f"http://{proxy_ip}"
+        proxies = {"http": proxy_url, "https": proxy_url}
+        status_msg.text(f"Testing proxy {i+1}/15: {proxy_ip}...")
+        
+        try:
+            # Quick check against the target
+            r = requests.get("https://fbref.com", proxies=proxies, impersonate="chrome124", timeout=5)
+            if r.status_code == 200:
+                status_msg.success(f"Connected via {proxy_ip}!")
+                time.sleep(1)
+                status_msg.empty()
+                return proxies
+        except:
+            continue
+            
+    status_msg.error("Could not find a working free proxy. Try running again or use a Custom Proxy.")
+    return None
+
 # --- SCRAPING UTILS ---
 def clean_html_content(html_content):
-    """
-    FBref often hides data tables inside HTML comments .
-    This function removes the comment tags to expose the tables to Pandas.
-    """
-    # Remove comment tags but keep content
-    cleaned = re.sub(r'', '', html_content)
-    return cleaned
+    """Unhides commented-out data tables."""
+    return re.sub(r'', '', html_content)
 
-def fetch_with_impersonation(url, proxy=None):
-    """
-    Uses curl_cffi to impersonate a real Chrome browser's TLS fingerprint.
-    """
-    proxies = {"http": proxy, "https": proxy} if proxy else None
-    
+def fetch_data(url, proxies=None):
+    """Fetches URL using curl_cffi with TLS impersonation."""
     try:
-        # 'impersonate="chrome124"' makes the server think we are a real Chrome browser
         response = requests.get(
             url, 
             impersonate="chrome124", 
             proxies=proxies,
-            timeout=30
+            timeout=15
         )
-        if response.status_code == 200:
-            return response.text
-        elif response.status_code == 429:
-            st.warning("Rate limit hit (429). Cooling down...")
-            time.sleep(10)
-            return None
-        else:
-            print(f"Failed {url} - Status: {response.status_code}")
-            return None
+        return response
     except Exception as e:
-        print(f"Network error: {e}")
+        print(f"Error fetching {url}: {e}")
         return None
 
-def scrape_fbref_merged(leagues, seasons, stat_types, user_proxy=None):
+def scrape_fbref_merged(leagues, seasons, stat_types, use_auto, manual_proxy_str):
     status_text = st.empty()
     progress_bar = st.progress(0)
     
+    # --- SETUP PROXY ---
+    active_proxies = None
+    if manual_proxy_str:
+        active_proxies = {"http": manual_proxy_str, "https": manual_proxy_str}
+        st.info(f"Using Custom Proxy: {manual_proxy_str}")
+    elif use_auto:
+        with st.spinner("Fetching and testing free proxies... (This takes a moment)"):
+            candidates = get_free_proxies()
+            st.write(f"Found {len(candidates)} candidates.")
+            active_proxies = test_and_get_working_proxy(candidates)
+            if not active_proxies:
+                return pd.DataFrame() # Stop if no proxy found
+    else:
+        st.warning("Attempting Direct Connection (High risk of block)")
+    
+    # --- MAPPINGS ---
     league_map = {
         'Serie A': {'id': '11', 'slug': 'Serie-A'},
         'Premier League': {'id': '9', 'slug': 'Premier-League'},
@@ -151,10 +202,6 @@ def scrape_fbref_merged(leagues, seasons, stat_types, user_proxy=None):
         for season in seasons:
             group_key = (league, season)
             
-            # We can sometimes optimize by fetching the page ONCE per season/league
-            # But FBref separates stats into different pages (mostly).
-            # We will follow the standard flow.
-            
             for s_type in stat_types:
                 current_step += 1
                 progress_bar.progress(min(current_step / total_steps, 0.99))
@@ -169,51 +216,59 @@ def scrape_fbref_merged(leagues, seasons, stat_types, user_proxy=None):
                     full_year_str = f"20{years[0]}-20{years[1]}"
                     url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
                 
-                try:
-                    # 1. Fetch Raw HTML
-                    html = fetch_with_impersonation(url, proxy=user_proxy)
-                    if not html: 
+                # RETRY LOGIC (Rotate proxy if 403)
+                max_retries = 3
+                for attempt in range(max_retries):
+                    response = fetch_data(url, proxies=active_proxies)
+                    
+                    if not response:
+                        continue # Network error
+                    
+                    if response.status_code == 429:
+                        time.sleep(10) # Cool down
                         continue
-                    
-                    # 2. "Unhide" the tables
-                    cleaned_html = clean_html_content(html)
-                    
-                    # 3. Parse with Pandas
-                    # wrapping in StringIO to avoid pandas deprecation warnings
-                    dfs = pd.read_html(StringIO(cleaned_html), attrs={'id': re.compile(table_id_key)})
-                    
-                    if not dfs: 
-                        # Fallback: try finding any table if the ID changed
-                        dfs = pd.read_html(StringIO(cleaned_html))
-                        if not dfs: continue
+                        
+                    if response.status_code == 403:
+                        # If blocked and using auto-proxy, try to get a new one? 
+                        # For simplicity, we just warn and wait.
+                        print("403 Blocked. Retrying...")
+                        time.sleep(random.uniform(2, 5))
+                        continue
+                        
+                    if response.status_code == 200:
+                        # SUCCESS
+                        html = clean_html_content(response.text)
+                        try:
+                            # Loose matching for table ID
+                            dfs = pd.read_html(StringIO(html), match=table_id_key)
+                            if not dfs: 
+                                # Fallback: any table
+                                dfs = pd.read_html(StringIO(html))
+                            
+                            if dfs:
+                                df = dfs[0]
+                                
+                                # CLEANING
+                                if isinstance(df.columns, pd.MultiIndex):
+                                    df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
 
-                    df = dfs[0]
-                    
-                    # 4. Clean Dataframe
-                    if isinstance(df.columns, pd.MultiIndex):
-                        df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
+                                if 'Rk' in df.columns: df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
+                                if 'Matches' in df.columns: df = df.drop(columns=['Matches'])
+                                df = df.drop_duplicates(subset=['Player', 'Squad'])
+                                df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
 
-                    if 'Rk' in df.columns: df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
-                    if 'Matches' in df.columns: df = df.drop(columns=['Matches'])
-                    
-                    # Standardize types to avoid merge errors
-                    df = df.drop_duplicates(subset=['Player', 'Squad'])
-                    df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
-
-                    # 5. Merge
-                    if group_key not in merged_data_storage:
-                        merged_data_storage[group_key] = df
-                    else:
-                        merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
-                        if merge_on:
-                            merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
-                    
-                    # Respectful sleep to avoid ban
-                    time.sleep(random.uniform(3, 5))
-                    
-                except Exception as e:
-                    print(f"Parse error for {url}: {e}")
-                    continue
+                                # MERGING
+                                if group_key not in merged_data_storage:
+                                    merged_data_storage[group_key] = df
+                                else:
+                                    merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
+                                    if merge_on:
+                                        merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
+                                break # Exit retry loop
+                        except Exception as e:
+                            print(f"Parsing failed: {e}")
+                            
+                    time.sleep(random.uniform(2, 4)) # Polite delay
 
     progress_bar.empty()
     status_text.empty()
@@ -226,39 +281,20 @@ if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
-        # Check for Support Popup
-        @st.dialog("Support the Developer")
-        def show_coffee_popup():
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
-            st.markdown("""
-            I've upgraded the scraper to use **Chrome Network Impersonation** to bypass blocks!
-            
-            If this tool saves you time, please consider fueling my next update.
-            """)
-            st.markdown("""
-                <div style="display: flex; justify-content: center; margin-bottom: 25px;">
-                    <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
-                        <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" style="height: 50px !important;width: 180px !important;" >
-                    </a>
-                </div>
-            """, unsafe_allow_html=True)
-            if st.button("Continue & Start Scraping", use_container_width=True):
-                st.session_state.run_scrape = True
-                st.rerun()
-        
         show_coffee_popup()
 
 # Executes scraping only if state is set to True
 if st.session_state.run_scrape:
     st.session_state.run_scrape = False
     
-    # Get Proxy from sidebar if it exists
-    user_proxy_input = proxy_url if 'proxy_url' in locals() and proxy_url else None
-    
-    with st.spinner("Fetching data using TLS Impersonation..."):
-        df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats, user_proxy_input)
+    # Run the scraper
+    df_result = scrape_fbref_merged(
+        selected_leagues, 
+        selected_seasons, 
+        selected_stats,
+        use_auto_proxy,
+        manual_proxy
+    )
     
     if not df_result.empty:
         st.success("Scraping completed!")
@@ -268,4 +304,8 @@ if st.session_state.run_scrape:
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
         st.error("No data found.")
-        st.warning("Diagnostic: If you see this, the server IP is likely hard-blocked. Try adding a residential proxy in the sidebar.")
+        st.markdown("""
+        **Troubleshooting:**
+        1. **Free Proxies are Unreliable:** The auto-rotator might have picked a proxy that is slow or also blocked. **Try clicking 'Start' again** to fetch a fresh list.
+        2. **Manual Proxy:** If you have a working residential proxy, paste it in the sidebar.
+        """)
