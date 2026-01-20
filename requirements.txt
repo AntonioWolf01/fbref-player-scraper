@@ -6,3 +6,4 @@ html5lib
 webdriver_manager
 undetected-chromedriver
 fake-useragent
+packaging
