@@ -1,12 +1,6 @@
 streamlit
 pandas
-selenium
+curl_cffi
+beautifulsoup4
 lxml
 html5lib
-webdriver_manager
-undetected-chromedriver
-fake-useragent
-packaging
-selenium-stealth
-pyvirtualdisplay
-DrissionPage
