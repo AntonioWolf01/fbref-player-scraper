@@ -3,6 +3,30 @@ import pandas as pd
 import time
 import random
 import logging
+import sys
+import os
+
+# --- CRITICAL PATCH FOR PYTHON 3.12+ ---
+# undetected_chromedriver uses 'distutils' which was removed in Python 3.12
+# We must restore it manually before importing the library.
+if sys.version_info >= (3, 12):
+    import setuptools  # This often re-enables distutils functionality
+    import distutils.version
+    
+    # If the above doesn't work, we mock the specific class needed
+    if not hasattr(distutils, "version"):
+        from packaging import version
+        class LooseVersion(version.Version):
+            def __init__(self, vstring):
+                super().__init__(vstring)
+
+        import types
+        distutils.version = types.ModuleType("version")
+        distutils.version.LooseVersion = LooseVersion
+        sys.modules["distutils.version"] = distutils.version
+
+# --- END PATCH ---
+
 from fake_useragent import UserAgent
 
 # Anti-Detection Imports
@@ -10,6 +34,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
