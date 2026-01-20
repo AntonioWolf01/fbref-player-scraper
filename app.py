@@ -255,6 +255,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     
                     try:
                         driver.get(url)
+                        st.write(driver.page_source)
                         
                         # Increased sleep time to mimic human behavior better
                         time.sleep(random.uniform(4, 7))
