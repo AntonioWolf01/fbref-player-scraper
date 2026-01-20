@@ -5,25 +5,25 @@ import random
 import os
 import shutil
 from pyvirtualdisplay import Display
-import undetected_chromedriver as uc
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium_stealth import stealth
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
 
-# Initialize session state for scraping trigger
+# Initialize session state
 if "run_scrape" not in st.session_state:
     st.session_state.run_scrape = False
 
 # --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #ffffff;
-        color: #000000;
-    }
+    .stApp { background-color: #ffffff; color: #000000; }
     div.stButton > button {
         background-color: #000000 !important;
         color: #ffffff !important;
@@ -35,20 +35,22 @@ st.markdown("""
         background-color: #ffffff !important;
         color: #000000 !important;
     }
-    h1, h2, h3, h4, p {
-        text-align: center;
-        color: #000000 !important;
-    }
-    .header-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 20px;
-        margin-bottom: 10px;
-    }
+    .header-container { display: flex; justify-content: center; align-items: center; gap: 20px; margin-bottom: 10px; }
     .header-logo { height: 60px; width: 60px; border-radius: 10px; }
     .header-title { font-size: 3.5rem; font-weight: 700; margin: 0; line-height: 1; color: #000000; }
     </style>
+""", unsafe_allow_html=True)
+
+# --- HEADER SECTION ---
+logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
+st.markdown(f"""
+    <div class="header-container">
+        <img src="{logo_url}" class="header-logo">
+        <h1 class="header-title">Scrape That!</h1>
+    </div>
+    <p style="text-align: center; font-size: 1.1rem; color: #333333; margin-bottom: 40px;">
+        Select leagues, seasons, and stats to download the complete dataset.
+    </p>
 """, unsafe_allow_html=True)
 
 # --- BUY ME A COFFEE POPUP ---
@@ -73,18 +75,6 @@ def show_coffee_popup():
         st.session_state.run_scrape = True
         st.rerun()
 
-# --- HEADER SECTION ---
-logo_url = "https://cdn.brandfetch.io/idmNg5Llwe/w/400/h/400/theme/dark/icon.jpeg?c=1dxbfHSJFAPEGdCLU4o5B"
-st.markdown(f"""
-    <div class="header-container">
-        <img src="{logo_url}" class="header-logo">
-        <h1 class="header-title">Scrape That!</h1>
-    </div>
-    <p style="text-align: center; font-size: 1.1rem; color: #333333; margin-bottom: 40px;">
-        Select leagues, seasons, and stats to download the complete dataset.
-    </p>
-""", unsafe_allow_html=True)
-
 # --- CONFIGURATION ---
 st.write("---")
 st.header("Configuration")
@@ -108,20 +98,45 @@ st.write("---")
 
 # --- SCRAPING FUNCTION ---
 def get_driver():
-    """Initializes a 'Headed' driver using a Virtual Display to fool Cloudflare."""
-    options = uc.ChromeOptions()
+    """Initializes a standard Chrome driver with Selenium-Stealth."""
+    options = Options()
+    # IMPORTANT: Do NOT use --headless. We use Xvfb (Virtual Display) instead.
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # Locate Chromium binary
-    browser_path = shutil.which("chromium") or "/usr/bin/chromium"
-    options.binary_location = browser_path
+    # Anti-bot detection arguments
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
 
-    # IMPORTANT: We do NOT use --headless. We use PyVirtualDisplay instead.
-    
+    # Locate Chromium binary
+    if os.path.exists("/usr/bin/chromium"):
+        options.binary_location = "/usr/bin/chromium"
+    elif shutil.which("chromium"):
+        options.binary_location = shutil.which("chromium")
+
+    # Locate Driver
+    if os.path.exists("/usr/bin/chromedriver"):
+        service = Service("/usr/bin/chromedriver")
+    else:
+        # Fallback for local testing
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
+
     try:
-        driver = uc.Chrome(options=options, version_main=None) # version_main=None allows auto-detection
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        # Apply Stealth (This scrubs the 'navigator.webdriver' flag)
+        stealth(driver,
+            languages=["en-US", "en"],
+            vendor="Google Inc.",
+            platform="Win32",
+            webgl_vendor="Intel Inc.",
+            renderer="Intel Iris OpenGL Engine",
+            fix_hairline=True,
+        )
         return driver
     except Exception as e:
         st.error(f"Driver Error: {e}")
@@ -156,7 +171,8 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
     # --- START VIRTUAL DISPLAY ---
-    # This simulates a monitor so the browser thinks it's running in GUI mode
+    # This creates a "fake" monitor in the server's memory.
+    # Cloudflare sees a browser with a visible window, trusting it more.
     display = Display(visible=0, size=(1920, 1080))
     display.start()
     
@@ -192,21 +208,21 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     try:
                         driver.get(url)
                         
-                        # --- CLOUDFLARE BYPASS CHECK ---
-                        # Wait specifically for the 'Just a moment' title to disappear
+                        # Wait for the "Just a moment..." verification to pass
                         try:
-                            WebDriverWait(driver, 20).until_not(EC.title_is("Just a moment..."))
+                            WebDriverWait(driver, 15).until_not(EC.title_is("Just a moment..."))
                         except:
-                            st.warning("Stuck on verification screen. Retrying...")
+                            # If stuck, simple retry or skip
+                            st.warning(f"Verification Check stuck on {league} {season}. Retrying...")
                             driver.refresh()
                             time.sleep(5)
+
+                        time.sleep(random.uniform(3, 5))
                         
-                        # Wait for table
-                        time.sleep(random.uniform(4, 6))
                         wait = WebDriverWait(driver, 10)
                         table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
                         
-                        # LXML parsing is faster and more robust
+                        # Use LXML for faster parsing
                         dfs = pd.read_html(table_element.get_attribute('outerHTML'), flavor='lxml')
                         if not dfs: continue
                         df = dfs[0]
@@ -225,8 +241,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                             merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
                             if merge_on:
                                 merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
-                    except Exception as e:
-                        # Skip errors silently to keep process running
+                    except Exception:
                         continue
     finally:
         if driver: driver.quit()
@@ -246,7 +261,7 @@ if start_btn:
 
 if st.session_state.run_scrape:
     st.session_state.run_scrape = False
-    with st.spinner("Initializing Virtual Display & Bypassing Cloudflare..."):
+    with st.spinner("Initializing Stealth Browser (This helps bypass the bot check)..."):
         df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
     
     if not df_result.empty:
@@ -256,4 +271,4 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found. The server might be blocking requests temporarily. Try again in 5 minutes.")
+        st.error("No data found. Cloudflare may still be blocking requests. Try again in a few minutes.")
