@@ -5,13 +5,7 @@ import random
 import os
 import shutil
 from pyvirtualdisplay import Display
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium_stealth import stealth
+from DrissionPage import ChromiumPage, ChromiumOptions
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
@@ -96,54 +90,7 @@ with c3:
 start_btn = st.button("Start Scraping", use_container_width=True)
 st.write("---")
 
-# --- SCRAPING FUNCTION ---
-def get_driver():
-    """Initializes a standard Chrome driver with Selenium-Stealth."""
-    options = Options()
-    
-    # CRITICAL: Do NOT use --headless. 
-    # The Virtual Display (Xvfb) handles the visibility.
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    
-    # Basic Anti-bot arguments
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option('useAutomationExtension', False)
-
-    # Locate Chromium binary
-    if os.path.exists("/usr/bin/chromium"):
-        options.binary_location = "/usr/bin/chromium"
-    elif shutil.which("chromium"):
-        options.binary_location = shutil.which("chromium")
-
-    # Locate Driver
-    if os.path.exists("/usr/bin/chromedriver"):
-        service = Service("/usr/bin/chromedriver")
-    else:
-        # Fallback for local testing
-        from webdriver_manager.chrome import ChromeDriverManager
-        service = Service(ChromeDriverManager().install())
-
-    try:
-        driver = webdriver.Chrome(service=service, options=options)
-        
-        # Apply Stealth (Scrub navigator.webdriver flags)
-        stealth(driver,
-            languages=["en-US", "en"],
-            vendor="Google Inc.",
-            platform="Win32",
-            webgl_vendor="Intel Inc.",
-            renderer="Intel Iris OpenGL Engine",
-            fix_hairline=True,
-        )
-        return driver
-    except Exception as e:
-        st.error(f"Driver Error: {e}")
-        return None
-
+# --- SCRAPING FUNCTION (DrissionPage Edition) ---
 def scrape_fbref_merged(leagues, seasons, stat_types):
     status_text = st.empty()
     progress_bar = st.progress(0)
@@ -172,13 +119,29 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
-    # --- START VIRTUAL DISPLAY ---
-    # This creates a "fake" monitor. Cloudflare sees a browser with a visible window.
+    # --- SETUP DRISSIONPAGE ---
+    # Start Virtual Display (Visible window in background)
     display = Display(visible=0, size=(1920, 1080))
     display.start()
     
-    driver = get_driver()
-    if not driver:
+    page = None
+    try:
+        co = ChromiumOptions()
+        # Point to system chromium
+        browser_path = shutil.which("chromium") or "/usr/bin/chromium"
+        co.set_browser_path(browser_path)
+        
+        # Essential args for Container environments
+        co.set_argument('--no-sandbox')
+        co.set_argument('--disable-gpu')
+        co.set_argument('--window-size=1920,1080')
+        
+        # IMPORTANT: DrissionPage handles the "webdriver" property automatically,
+        # but we ensure it connects in a way that looks like a normal launch.
+        
+        page = ChromiumPage(co)
+    except Exception as e:
+        st.error(f"Browser Init Error: {e}")
         display.stop()
         return pd.DataFrame()
 
@@ -207,23 +170,28 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                         url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
                     
                     try:
-                        driver.get(url)
+                        # DrissionPage Navigation
+                        page.get(url)
                         
-                        # Wait for the "Just a moment..." verification to pass
-                        try:
-                            WebDriverWait(driver, 15).until_not(EC.title_is("Just a moment..."))
-                        except:
-                            st.warning(f"Verification Check stuck on {league} {season}. Retrying...")
-                            driver.refresh()
-                            time.sleep(5)
+                        # Wait for potential cloudflare challenge
+                        # If title is "Just a moment...", wait for it to change
+                        if "Just a moment" in page.title:
+                            page.wait.title_change("Just a moment", timeout=15)
 
-                        time.sleep(random.uniform(3, 5))
+                        time.sleep(random.uniform(2, 4))
                         
-                        wait = WebDriverWait(driver, 10)
-                        table_element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f"table[id*='{table_id_key}']")))
+                        # Check if table exists
+                        if not page.ele(f"css:table[id*='{table_id_key}']"):
+                            # If blocked, try a refresh once
+                            page.refresh()
+                            time.sleep(5)
                         
-                        # Use LXML for faster parsing
-                        dfs = pd.read_html(table_element.get_attribute('outerHTML'), flavor='lxml')
+                        # Get HTML string
+                        table_html = page.ele(f"css:table[id*='{table_id_key}']").html
+                        
+                        if not table_html: continue
+                        
+                        dfs = pd.read_html(table_html, flavor='lxml')
                         if not dfs: continue
                         df = dfs[0]
                         
@@ -244,7 +212,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                     except Exception:
                         continue
     finally:
-        if driver: driver.quit()
+        if page: page.quit()
         if display: display.stop()
         progress_bar.empty()
         status_text.empty()
@@ -261,7 +229,7 @@ if start_btn:
 
 if st.session_state.run_scrape:
     st.session_state.run_scrape = False
-    with st.spinner("Initializing Stealth Browser..."):
+    with st.spinner("Initializing DrissionPage (Advanced Stealth)..."):
         df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
     
     if not df_result.empty:
@@ -271,4 +239,4 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found. Cloudflare may still be blocking requests. Try again in a few minutes.")
+        st.error("No data found. If this persists, the server IP is likely blacklisted by the target site.")
