@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 import time
 import random
-import os
-import shutil
-from pyvirtualdisplay import Display
-from DrissionPage import ChromiumPage, ChromiumOptions
+import re
+from io import StringIO
+from curl_cffi import requests
+from bs4 import BeautifulSoup
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
@@ -47,31 +47,16 @@ st.markdown(f"""
     </p>
 """, unsafe_allow_html=True)
 
-# --- BUY ME A COFFEE POPUP ---
-@st.dialog("Support the Developer")
-def show_coffee_popup():
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
-    st.markdown("""
-    Manual data collection is a nightmare I’ve handled so you don't have to. 
-    If 'Scrape That!' provided value, feel free to fuel my next update. 
-    **I can't scrape coffee beans, so I have to buy them.**
-    """)
-    st.markdown("""
-        <div style="display: flex; justify-content: center; margin-bottom: 25px;">
-            <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
-                <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" style="height: 50px !important;width: 180px !important;" >
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
-    if st.button("Continue without donating & Start Scraping", use_container_width=True):
-        st.session_state.run_scrape = True
-        st.rerun()
-
 # --- CONFIGURATION ---
 st.write("---")
 st.header("Configuration")
+
+# Sidebar for Advanced Settings (Proxy)
+with st.sidebar:
+    st.header("Advanced Settings")
+    st.info("If the server IP is blocked, add a proxy string here.")
+    proxy_url = st.text_input("Proxy URL (Optional)", placeholder="http://user:pass@ip:port")
+
 leagues_opt = ['Serie A', 'Premier League', 'Liga', 'Bundesliga', 'Ligue 1']
 seasons_opt = [f"{str(i).zfill(2)}-{str(i+1).zfill(2)}" for i in range(25, 16, -1)]
 stats_opt = ['standard', 'gk', 'gk_advanced', 'shooting', 'passing', 'pass_types', 'sca & gca', 'defense', 'possession', 'playing time', 'miscellaneous']
@@ -90,8 +75,44 @@ with c3:
 start_btn = st.button("Start Scraping", use_container_width=True)
 st.write("---")
 
-# --- SCRAPING FUNCTION (DrissionPage Edition) ---
-def scrape_fbref_merged(leagues, seasons, stat_types):
+# --- SCRAPING UTILS ---
+def clean_html_content(html_content):
+    """
+    FBref often hides data tables inside HTML comments .
+    This function removes the comment tags to expose the tables to Pandas.
+    """
+    # Remove comment tags but keep content
+    cleaned = re.sub(r'', '', html_content)
+    return cleaned
+
+def fetch_with_impersonation(url, proxy=None):
+    """
+    Uses curl_cffi to impersonate a real Chrome browser's TLS fingerprint.
+    """
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    
+    try:
+        # 'impersonate="chrome124"' makes the server think we are a real Chrome browser
+        response = requests.get(
+            url, 
+            impersonate="chrome124", 
+            proxies=proxies,
+            timeout=30
+        )
+        if response.status_code == 200:
+            return response.text
+        elif response.status_code == 429:
+            st.warning("Rate limit hit (429). Cooling down...")
+            time.sleep(10)
+            return None
+        else:
+            print(f"Failed {url} - Status: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Network error: {e}")
+        return None
+
+def scrape_fbref_merged(leagues, seasons, stat_types, user_proxy=None):
     status_text = st.empty()
     progress_bar = st.progress(0)
     
@@ -118,105 +139,85 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     }
 
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
-
-    # --- SETUP DRISSIONPAGE ---
-    # Start Virtual Display (Visible window in background)
-    display = Display(visible=0, size=(1920, 1080))
-    display.start()
-    
-    page = None
-    try:
-        co = ChromiumOptions()
-        # Point to system chromium
-        browser_path = shutil.which("chromium") or "/usr/bin/chromium"
-        co.set_browser_path(browser_path)
-        
-        # Essential args for Container environments
-        co.set_argument('--no-sandbox')
-        co.set_argument('--disable-gpu')
-        co.set_argument('--window-size=1920,1080')
-        
-        # IMPORTANT: DrissionPage handles the "webdriver" property automatically,
-        # but we ensure it connects in a way that looks like a normal launch.
-        
-        page = ChromiumPage(co)
-    except Exception as e:
-        st.error(f"Browser Init Error: {e}")
-        display.stop()
-        return pd.DataFrame()
-
     merged_data_storage = {}
+    
     total_steps = len(leagues) * len(seasons) * len(stat_types)
     current_step = 0
 
-    try:
-        for league in leagues:
-            if league not in league_map: continue
-            comp_id, comp_slug = league_map[league]['id'], league_map[league]['slug']
-            for season in seasons:
-                group_key = (league, season)
-                for s_type in stat_types:
-                    current_step += 1
-                    progress_bar.progress(min(current_step / total_steps, 0.99))
-                    status_text.text(f"Scraping: {league} {season} - {s_type}...")
-                    
-                    url_slug, table_id_key = type_map[s_type]['url'], type_map[s_type]['table_id']
-                    
-                    if season == '25-26': 
-                        url = f"https://fbref.com/en/comps/{comp_id}/{url_slug}/{comp_slug}-Stats"
-                    else:
-                        years = season.split('-')
-                        full_year_str = f"20{years[0]}-20{years[1]}"
-                        url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
-                    
-                    try:
-                        # DrissionPage Navigation
-                        page.get(url)
-                        
-                        # Wait for potential cloudflare challenge
-                        # If title is "Just a moment...", wait for it to change
-                        if "Just a moment" in page.title:
-                            page.wait.title_change("Just a moment", timeout=15)
-
-                        time.sleep(random.uniform(2, 4))
-                        
-                        # Check if table exists
-                        if not page.ele(f"css:table[id*='{table_id_key}']"):
-                            # If blocked, try a refresh once
-                            page.refresh()
-                            time.sleep(5)
-                        
-                        # Get HTML string
-                        table_html = page.ele(f"css:table[id*='{table_id_key}']").html
-                        
-                        if not table_html: continue
-                        
-                        dfs = pd.read_html(table_html, flavor='lxml')
-                        if not dfs: continue
-                        df = dfs[0]
-                        
-                        if isinstance(df.columns, pd.MultiIndex):
-                            df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
-
-                        if 'Rk' in df.columns: df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
-                        if 'Matches' in df.columns: df = df.drop(columns=['Matches'])
-                        df = df.drop_duplicates(subset=['Player', 'Squad'])
-                        df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
-
-                        if group_key not in merged_data_storage:
-                            merged_data_storage[group_key] = df
-                        else:
-                            merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
-                            if merge_on:
-                                merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
-                    except Exception:
+    for league in leagues:
+        if league not in league_map: continue
+        comp_id, comp_slug = league_map[league]['id'], league_map[league]['slug']
+        
+        for season in seasons:
+            group_key = (league, season)
+            
+            # We can sometimes optimize by fetching the page ONCE per season/league
+            # But FBref separates stats into different pages (mostly).
+            # We will follow the standard flow.
+            
+            for s_type in stat_types:
+                current_step += 1
+                progress_bar.progress(min(current_step / total_steps, 0.99))
+                status_text.text(f"Fetching: {league} {season} - {s_type}...")
+                
+                url_slug, table_id_key = type_map[s_type]['url'], type_map[s_type]['table_id']
+                
+                if season == '25-26': 
+                    url = f"https://fbref.com/en/comps/{comp_id}/{url_slug}/{comp_slug}-Stats"
+                else:
+                    years = season.split('-')
+                    full_year_str = f"20{years[0]}-20{years[1]}"
+                    url = f"https://fbref.com/en/comps/{comp_id}/{full_year_str}/{url_slug}/{full_year_str}-{comp_slug}-Stats"
+                
+                try:
+                    # 1. Fetch Raw HTML
+                    html = fetch_with_impersonation(url, proxy=user_proxy)
+                    if not html: 
                         continue
-    finally:
-        if page: page.quit()
-        if display: display.stop()
-        progress_bar.empty()
-        status_text.empty()
+                    
+                    # 2. "Unhide" the tables
+                    cleaned_html = clean_html_content(html)
+                    
+                    # 3. Parse with Pandas
+                    # wrapping in StringIO to avoid pandas deprecation warnings
+                    dfs = pd.read_html(StringIO(cleaned_html), attrs={'id': re.compile(table_id_key)})
+                    
+                    if not dfs: 
+                        # Fallback: try finding any table if the ID changed
+                        dfs = pd.read_html(StringIO(cleaned_html))
+                        if not dfs: continue
 
+                    df = dfs[0]
+                    
+                    # 4. Clean Dataframe
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = [col[1] if "Unnamed" in col[0] else f"{col[0]}_{col[1]}" for col in df.columns]
+
+                    if 'Rk' in df.columns: df = df[df['Rk'] != 'Rk'].drop(columns=['Rk'])
+                    if 'Matches' in df.columns: df = df.drop(columns=['Matches'])
+                    
+                    # Standardize types to avoid merge errors
+                    df = df.drop_duplicates(subset=['Player', 'Squad'])
+                    df = df.rename(columns={col: f"{s_type}_{col}" for col in df.columns if col not in id_cols})
+
+                    # 5. Merge
+                    if group_key not in merged_data_storage:
+                        merged_data_storage[group_key] = df
+                    else:
+                        merge_on = [c for c in id_cols if c in merged_data_storage[group_key].columns and c in df.columns]
+                        if merge_on:
+                            merged_data_storage[group_key] = pd.merge(merged_data_storage[group_key], df, on=merge_on, how='outer')
+                    
+                    # Respectful sleep to avoid ban
+                    time.sleep(random.uniform(3, 5))
+                    
+                except Exception as e:
+                    print(f"Parse error for {url}: {e}")
+                    continue
+
+    progress_bar.empty()
+    status_text.empty()
+    
     final_dfs = [df_data.assign(League=league, Season=season) for (league, season), df_data in merged_data_storage.items()]
     return pd.concat(final_dfs, ignore_index=True) if final_dfs else pd.DataFrame()
 
@@ -225,12 +226,39 @@ if start_btn:
     if not selected_leagues or not selected_seasons or not selected_stats:
         st.warning("Please select at least one league, one season, and one statistic.")
     else:
+        # Check for Support Popup
+        @st.dialog("Support the Developer")
+        def show_coffee_popup():
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.image("https://media.tenor.com/6heB-WgIU1kAAAAi/transparent-coffee.gif", use_container_width=True)
+            st.markdown("""
+            I've upgraded the scraper to use **Chrome Network Impersonation** to bypass blocks!
+            
+            If this tool saves you time, please consider fueling my next update.
+            """)
+            st.markdown("""
+                <div style="display: flex; justify-content: center; margin-bottom: 25px;">
+                    <a href="https://buymeacoffee.com/antoniolupo" target="_blank">
+                        <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" style="height: 50px !important;width: 180px !important;" >
+                    </a>
+                </div>
+            """, unsafe_allow_html=True)
+            if st.button("Continue & Start Scraping", use_container_width=True):
+                st.session_state.run_scrape = True
+                st.rerun()
+        
         show_coffee_popup()
 
+# Executes scraping only if state is set to True
 if st.session_state.run_scrape:
     st.session_state.run_scrape = False
-    with st.spinner("Initializing DrissionPage (Advanced Stealth)..."):
-        df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
+    
+    # Get Proxy from sidebar if it exists
+    user_proxy_input = proxy_url if 'proxy_url' in locals() and proxy_url else None
+    
+    with st.spinner("Fetching data using TLS Impersonation..."):
+        df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats, user_proxy_input)
     
     if not df_result.empty:
         st.success("Scraping completed!")
@@ -239,4 +267,5 @@ if st.session_state.run_scrape:
         csv = df_result.to_csv(index=False).encode('utf-8')
         st.download_button(label="Download CSV", data=csv, file_name="fbref_data_merged.csv", mime="text/csv")
     else:
-        st.error("No data found. If this persists, the server IP is likely blacklisted by the target site.")
+        st.error("No data found.")
+        st.warning("Diagnostic: If you see this, the server IP is likely hard-blocked. Try adding a residential proxy in the sidebar.")
