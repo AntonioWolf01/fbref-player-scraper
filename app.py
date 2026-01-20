@@ -5,9 +5,11 @@ import random
 import logging
 import sys
 import os
+import shutil
 
 # --- CRITICAL PATCH FOR PYTHON 3.12+ ---
 # Fixes 'LooseVersion' object has no attribute 'version' error
+# which occurs because undetected_chromedriver relies on removed distutils
 if sys.version_info >= (3, 12):
     import types
     from packaging import version # Requires 'packaging' in requirements.txt
@@ -15,9 +17,7 @@ if sys.version_info >= (3, 12):
     class LooseVersion(version.Version):
         def __init__(self, vstring):
             super().__init__(vstring)
-            # Critical Fix: distutils.LooseVersion exposed a .version attribute
-            # containing the tuple of version numbers. packaging uses .release.
-            # We map .version to .release to satisfy undetected_chromedriver.
+            # Map .version to .release to satisfy undetected_chromedriver
             self.version = self.release
 
     # Create fake distutils module if it doesn't exist
@@ -99,12 +99,12 @@ def simulate_human_scroll(driver):
 # --- DRIVER FACTORY ---
 def get_driver():
     """
-    Attempts to create a Stealth Driver.
+    Attempts to create a Stealth Driver by copying the system driver to a writable location.
     Falls back to Standard Driver if Stealth fails.
     """
     driver = None
     
-    # --- ATTEMPT 1: STEALTH DRIVER ---
+    # --- ATTEMPT 1: STEALTH DRIVER (Writable Copy Strategy) ---
     try:
         options = uc.ChromeOptions()
         options.add_argument("--headless=new") 
@@ -119,24 +119,32 @@ def get_driver():
         except:
             pass
 
-        # CRITICAL FIX FOR STREAMLIT CLOUD PERMISSIONS:
-        # We specify the BROWSER path (read-only system file)
-        # We DO NOT specify the DRIVER path. This forces 'uc' to download 
-        # a writable driver binary to the user's home directory.
-        browser_path = "/usr/bin/chromium" 
+        # Paths
+        browser_path = "/usr/bin/chromium"
+        original_driver_path = "/usr/bin/chromedriver"
+        
+        # CRITICAL FIX: Copy driver to /tmp so we have write permissions to patch it
+        writable_driver_path = "/tmp/chromedriver_stealth"
+        
+        if os.path.exists(original_driver_path):
+            shutil.copyfile(original_driver_path, writable_driver_path)
+            os.chmod(writable_driver_path, 0o777) # Make executable and writable
+        else:
+            # If system driver missing, rely on UC to download (might fail in cloud)
+            writable_driver_path = None 
 
         driver = uc.Chrome(
             options=options, 
             browser_executable_path=browser_path,
-            # driver_executable_path=...  <-- REMOVED to avoid Permission Denied
-            version_main=120, # Hints to uc which driver version to download
+            driver_executable_path=writable_driver_path, 
+            version_main=120, # Helps match the version if downloading
         )
         st.toast("🛡️ Anti-Detection Mode Active", icon="🕵️")
         return driver
         
     except Exception as e:
         logger.warning(f"Stealth driver failed: {e}")
-        st.toast(f"Stealth failed, switching to standard mode...", icon="⚠️")
+        st.toast(f"Stealth failed, trying standard mode...", icon="⚠️")
 
     # --- ATTEMPT 2: STANDARD FALLBACK ---
     try:
@@ -145,14 +153,14 @@ def get_driver():
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
+        # Add basic anti-detection flags to standard driver
+        options.add_argument("--disable-blink-features=AutomationControlled") 
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-        # Try finding system driver first (fastest)
         try:
             service = Service("/usr/bin/chromedriver")
             driver = webdriver.Chrome(service=service, options=options)
         except:
-            # If system driver fails, download one using webdriver_manager
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
             
@@ -161,7 +169,7 @@ def get_driver():
         st.error(f"❌ Could not initialize any browser driver. Final error: {e}")
         return None
 
-# --- UI COMPONENTS ---
+# --- UI COMPONENTS (Preserved) ---
 @st.dialog("Support the Developer")
 def show_coffee_popup():
     col_img1, col_img2, col_img3 = st.columns([1, 2, 1])
@@ -306,7 +314,10 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                         continue
     finally:
         if driver:
-            driver.quit()
+            try:
+                driver.quit()
+            except:
+                pass
         progress_bar.empty()
         status_text.empty()
 
