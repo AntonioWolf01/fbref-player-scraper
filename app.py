@@ -106,7 +106,6 @@ def get_driver():
     
     # --- ATTEMPT 1: STEALTH DRIVER ---
     try:
-        st.toast("🛡️ Anti-Detection Mode Active - Using stealth browser", icon="🕵️")
         options = uc.ChromeOptions()
         options.add_argument("--headless=new") 
         options.add_argument("--no-sandbox")
@@ -120,21 +119,24 @@ def get_driver():
         except:
             pass
 
-        # Explicit paths usually needed for Streamlit Cloud
-        browser_path = "/usr/bin/chromium"
-        driver_path = "/usr/bin/chromedriver"
+        # CRITICAL FIX FOR STREAMLIT CLOUD PERMISSIONS:
+        # We specify the BROWSER path (read-only system file)
+        # We DO NOT specify the DRIVER path. This forces 'uc' to download 
+        # a writable driver binary to the user's home directory.
+        browser_path = "/usr/bin/chromium" 
 
         driver = uc.Chrome(
             options=options, 
             browser_executable_path=browser_path,
-            driver_executable_path=driver_path,
-            version_main=120 
+            # driver_executable_path=...  <-- REMOVED to avoid Permission Denied
+            version_main=120, # Hints to uc which driver version to download
         )
+        st.toast("🛡️ Anti-Detection Mode Active", icon="🕵️")
         return driver
         
     except Exception as e:
         logger.warning(f"Stealth driver failed: {e}")
-        st.toast(f"Stealth failed ({str(e)[:50]}...), trying standard...", icon="⚠️")
+        st.toast(f"Stealth failed, switching to standard mode...", icon="⚠️")
 
     # --- ATTEMPT 2: STANDARD FALLBACK ---
     try:
@@ -145,11 +147,12 @@ def get_driver():
         options.add_argument("--disable-gpu")
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         
-        # Try finding installed driver or using WebDriverManager
+        # Try finding system driver first (fastest)
         try:
             service = Service("/usr/bin/chromedriver")
             driver = webdriver.Chrome(service=service, options=options)
         except:
+            # If system driver fails, download one using webdriver_manager
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
             
