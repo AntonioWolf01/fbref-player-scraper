@@ -2,16 +2,38 @@ import streamlit as st
 import pandas as pd
 import time
 import random
-import json
-from pathlib import Path
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
+import logging
+import sys
+import os
+
+# --- CRITICAL PATCH FOR PYTHON 3.12+ ---
+# undetected_chromedriver uses 'distutils' which was removed in Python 3.12
+if sys.version_info >= (3, 12):
+    import types
+    from packaging import version # This requires 'packaging' in requirements.txt
+    
+    # Create a fake distutils.version module
+    if "distutils" not in sys.modules:
+        sys.modules["distutils"] = types.ModuleType("distutils")
+    if "distutils.version" not in sys.modules:
+        sys.modules["distutils.version"] = types.ModuleType("distutils.version")
+    
+    # Mock LooseVersion using packaging.version
+    class LooseVersion(version.Version):
+        def __init__(self, vstring):
+            super().__init__(vstring)
+
+    # Inject LooseVersion into the fake module
+    sys.modules["distutils.version"].LooseVersion = LooseVersion
+
+# --- END PATCH ---
+
+from fake_useragent import UserAgent
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-import undetected_chromedriver as uc
+
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Scrape That!", layout="wide")
