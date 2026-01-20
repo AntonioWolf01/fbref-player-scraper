@@ -100,13 +100,15 @@ st.write("---")
 def get_driver():
     """Initializes a standard Chrome driver with Selenium-Stealth."""
     options = Options()
-    # IMPORTANT: Do NOT use --headless. We use Xvfb (Virtual Display) instead.
+    
+    # CRITICAL: Do NOT use --headless. 
+    # The Virtual Display (Xvfb) handles the visibility.
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
     
-    # Anti-bot detection arguments
+    # Basic Anti-bot arguments
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
@@ -128,7 +130,7 @@ def get_driver():
     try:
         driver = webdriver.Chrome(service=service, options=options)
         
-        # Apply Stealth (This scrubs the 'navigator.webdriver' flag)
+        # Apply Stealth (Scrub navigator.webdriver flags)
         stealth(driver,
             languages=["en-US", "en"],
             vendor="Google Inc.",
@@ -171,8 +173,7 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
     id_cols = ['Player', 'Nation', 'Pos', 'Squad', 'Age', 'Born']
 
     # --- START VIRTUAL DISPLAY ---
-    # This creates a "fake" monitor in the server's memory.
-    # Cloudflare sees a browser with a visible window, trusting it more.
+    # This creates a "fake" monitor. Cloudflare sees a browser with a visible window.
     display = Display(visible=0, size=(1920, 1080))
     display.start()
     
@@ -212,7 +213,6 @@ def scrape_fbref_merged(leagues, seasons, stat_types):
                         try:
                             WebDriverWait(driver, 15).until_not(EC.title_is("Just a moment..."))
                         except:
-                            # If stuck, simple retry or skip
                             st.warning(f"Verification Check stuck on {league} {season}. Retrying...")
                             driver.refresh()
                             time.sleep(5)
@@ -261,7 +261,7 @@ if start_btn:
 
 if st.session_state.run_scrape:
     st.session_state.run_scrape = False
-    with st.spinner("Initializing Stealth Browser (This helps bypass the bot check)..."):
+    with st.spinner("Initializing Stealth Browser..."):
         df_result = scrape_fbref_merged(selected_leagues, selected_seasons, selected_stats)
     
     if not df_result.empty:
