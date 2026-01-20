@@ -8,3 +8,4 @@ undetected-chromedriver
 fake-useragent
 packaging
 selenium-stealth
+pyvirtualdisplay
